@@ -459,7 +459,7 @@ After the initial setup:
 
 - It is expected that the timelock multisig should revoke the permissions of malicious or compromised accounts
 
-- Order keepers and frozen order keepers could potentially extract value through transaction ordering, delayed transaction execution etc, this will be partially mitigated with a keeper network
+- Order keepers and frozen order keepers could potentially extract value through transaction ordering, delayed transaction execution, ADL execution, etc, this will be partially mitigated with a keeper network
 
 - Oracle signers are expected to accurately report the price of tokens
 
@@ -472,6 +472,8 @@ After the initial setup:
 - Order keepers can use prices from different blocks for limit orders with a swap, which would lead to different output amounts
 
 - Order keepers are expected to validate whether a transaction will revert before sending the transaction to minimize gas wastage
+
+- Order keepers may cause requests to be cancelled instead of executed by executing the request with insufficient gas
 
 - A user can reduce price impact by using high leverage positions, this is partially mitigated with the MIN_COLLATERAL_FACTOR_FOR_OPEN_INTEREST_MULTIPLIER value
 
