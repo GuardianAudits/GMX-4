@@ -1,7 +1,7 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
-import { getMarketTokenAddress } from "../utils/market";
 import * as keys from "../utils/keys";
-import { setUintIfDifferent } from "../utils/dataStore";
+import { setBytes32IfDifferent, setUintIfDifferent } from "../utils/dataStore";
+import { DEFAULT_MARKET_TYPE } from "../utils/market";
 import { ethers } from "ethers";
 
 function getMarketTokenAddresses(marketConfig, tokens) {
@@ -13,36 +13,55 @@ function getMarketTokenAddresses(marketConfig, tokens) {
   return [indexToken, longToken, shortToken];
 }
 
-const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRuntimeEnvironment) => {
-  const { execute, get, log } = deployments;
+function getMarketKey(indexToken: string, longToken: string, shortToken: string) {
+  return [indexToken, longToken, shortToken].join(":");
+}
+
+async function getOnchainMarkets(read: (...args: any[]) => any, dataStoreAddress: string) {
+  const onchainMarkets = await read("Reader", "getMarkets", dataStoreAddress, 0, 1000);
+  return Object.fromEntries(
+    onchainMarkets.map((market) => {
+      const { indexToken, longToken, shortToken } = market;
+      const marketKey = getMarketKey(indexToken, longToken, shortToken);
+      return [marketKey, market];
+    })
+  );
+}
+
+const func = async ({ deployments, getNamedAccounts, gmx }: HardhatRuntimeEnvironment) => {
+  const { execute, get, read, log } = deployments;
+  const generalConfig = await gmx.getGeneral();
+
   const { deployer } = await getNamedAccounts();
 
   const tokens = await gmx.getTokens();
   const markets = await gmx.getMarkets();
 
-  const marketFactory = await get("MarketFactory");
-  const roleStore = await get("RoleStore");
   const dataStore = await get("DataStore");
+
+  let onchainMarketsByTokens = await getOnchainMarkets(read, dataStore.address);
 
   for (const marketConfig of markets) {
     const [indexToken, longToken, shortToken] = getMarketTokenAddresses(marketConfig, tokens);
 
-    const marketToken = getMarketTokenAddress(
-      indexToken,
-      longToken,
-      shortToken,
-      marketFactory.address,
-      roleStore.address,
-      dataStore.address
-    );
-    const code = await ethers.provider.getCode(marketToken);
-    if (code !== "0x") {
-      log("market %s:%s:%s already exists at %s", indexToken, longToken, shortToken, marketToken);
+    const marketKey = getMarketKey(indexToken, longToken, shortToken);
+    const onchainMarket = onchainMarketsByTokens[marketKey];
+    if (onchainMarket) {
+      log("market %s:%s:%s already exists at %s", indexToken, longToken, shortToken, onchainMarket.marketToken);
       continue;
     }
 
-    log("creating market %s:%s:%s", indexToken, longToken, shortToken);
-    await execute("MarketFactory", { from: deployer, log: true }, "createMarket", indexToken, longToken, shortToken);
+    const marketType = DEFAULT_MARKET_TYPE;
+    log("creating market %s:%s:%s:%s", indexToken, longToken, shortToken, marketType);
+    await execute(
+      "MarketFactory",
+      { from: deployer, log: true },
+      "createMarket",
+      indexToken,
+      longToken,
+      shortToken,
+      marketType
+    );
   }
 
   async function setReserveFactor(marketToken: string, isLong: boolean, reserveFactor: number) {
@@ -54,8 +73,8 @@ const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRunti
     );
   }
 
-  async function setMinCollateralFactor(marketToken: string, minCollateralFactor: number, isLong: boolean) {
-    const key = keys.minCollateralFactorKey(marketToken, isLong);
+  async function setMinCollateralFactor(marketToken: string, minCollateralFactor: number) {
+    const key = keys.minCollateralFactorKey(marketToken);
     await setUintIfDifferent(key, minCollateralFactor, `min collateral factor ${marketToken.toString()}`);
   }
 
@@ -82,20 +101,15 @@ const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRunti
     );
   }
 
+  onchainMarketsByTokens = await getOnchainMarkets(read, dataStore.address);
+
   for (const marketConfig of markets) {
     const [indexToken, longToken, shortToken] = getMarketTokenAddresses(marketConfig, tokens);
+    const marketKey = getMarketKey(indexToken, longToken, shortToken);
+    const onchainMarket = onchainMarketsByTokens[marketKey];
+    const marketToken = onchainMarket.marketToken;
 
-    const marketToken = getMarketTokenAddress(
-      indexToken,
-      longToken,
-      shortToken,
-      marketFactory.address,
-      roleStore.address,
-      dataStore.address
-    );
-
-    await setMinCollateralFactor(marketToken, marketConfig.minCollateralFactorForLongs, true);
-    await setMinCollateralFactor(marketToken, marketConfig.minCollateralFactorForShorts, false);
+    await setMinCollateralFactor(marketToken, marketConfig.minCollateralFactor);
 
     await setMaxPoolAmount(marketToken, longToken, marketConfig.maxLongTokenPoolAmount);
     await setMaxPoolAmount(marketToken, shortToken, marketConfig.maxShortTokenPoolAmount);
@@ -146,6 +160,12 @@ const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRunti
       marketConfig.maxPnlFactorForWithdrawalsShorts
     );
 
+    await setUintIfDifferent(
+      keys.tokenTransferGasLimit(marketToken),
+      generalConfig.tokenTransferGasLimit,
+      `market token transfer gas limit`
+    );
+
     for (const name of [
       "positionFeeFactor",
       "positionImpactExponentFactor",
@@ -169,6 +189,15 @@ const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRunti
       );
     }
 
+    if (marketConfig.fundingExponentFactor) {
+      const key = keys.fundingExponentFactorKey(marketToken);
+      await setUintIfDifferent(
+        key,
+        marketConfig.fundingExponentFactor,
+        `funding exponent factor for ${marketToken.toString()}`
+      );
+    }
+
     if (marketConfig.borrowingFactorForShorts) {
       const key = keys.borrowingFactorKey(marketToken, false);
       await setUintIfDifferent(
@@ -179,7 +208,7 @@ const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRunti
     }
 
     if (marketConfig.borrowingExponentFactorForLongs) {
-      const key = keys.borrowingExponentFactor(marketToken, true);
+      const key = keys.borrowingExponentFactorKey(marketToken, true);
       await setUintIfDifferent(
         key,
         marketConfig.borrowingExponentFactorForLongs,
@@ -188,7 +217,7 @@ const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRunti
     }
 
     if (marketConfig.borrowingExponentFactorForShorts) {
-      const key = keys.borrowingExponentFactor(marketToken, false);
+      const key = keys.borrowingExponentFactorKey(marketToken, false);
       await setUintIfDifferent(
         key,
         marketConfig.borrowingExponentFactorForShorts,
@@ -246,6 +275,13 @@ const func = async ({ deployments, getNamedAccounts, gmx, ethers }: HardhatRunti
         `negative swap impact factor for ${marketToken.toString()}`
       );
     }
+
+    const tokenMarketId = marketConfig.tokenMarketId || ethers.constants.HashZero;
+    await setBytes32IfDifferent(
+      keys.virtualMarketIdKey(marketToken),
+      tokenMarketId,
+      `virtual market id for market ${marketToken.toString()}`
+    );
   }
 };
 
@@ -258,6 +294,7 @@ func.skip = async ({ gmx, network }) => {
   }
   return false;
 };
+func.runAtTheEnd = true;
 func.tags = ["Markets"];
 func.dependencies = ["MarketFactory", "Tokens", "DataStore"];
 export default func;
