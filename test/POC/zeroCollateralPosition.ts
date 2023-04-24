@@ -30,7 +30,7 @@ describe.only("Guardian", () => {
   });
 
   it("CRITICAL: Position with size but 0 collateral breaks funding fees", async () => {
-    await dataStore.setUint(keys.fundingFactorKey(ethUsdMarket.marketToken), decimalToFloat(1, 10));
+    await dataStore.setUint(keys.fundingFactorKey(ethUsdMarket.marketToken), decimalToFloat(2, 10));
     await dataStore.setUint(keys.fundingExponentFactorKey(ethUsdMarket.marketToken), decimalToFloat(1));
     expect(await getAccountPositionCount(dataStore, user0.address)).eq(0);
 
@@ -143,10 +143,7 @@ describe.only("Guardian", () => {
       exchangeRouter.connect(user1).claimFundingFees([ethUsdMarket.marketToken], [wnt.address], user1.address)
     ).to.be.revertedWithCustomError(errorsContract, "InvalidMarketTokenBalance");
 
-    // If another user earns funding fees, they are also unable to claim
-    // as market token balance validation will continue to fail.
-
-    // User1 will pay funding fees.
+    // User0 will pay funding fees.
     await handleOrder(fixture, {
       create: {
         market: ethUsdMarket,
@@ -159,7 +156,7 @@ describe.only("Guardian", () => {
       },
     });
 
-    // User2 creates a short with size $500 and shall get paid.
+    // User2 creates a short with size $1000 and shall get paid.
     await handleOrder(fixture, {
       create: {
         account: user2,
@@ -175,10 +172,20 @@ describe.only("Guardian", () => {
 
     expect(await getAccountPositionCount(dataStore, user2.address)).eq(1);
 
-    // Longs should be paying shorts for this time.
-    await time.increase(60);
+    // Longs should be paying shorts.
+    await time.increase(14 * 24 * 60 * 60);
 
-    // User2 closes their position and has been earning funding fees for ~60 seconds
+    await executeLiquidation(fixture, {
+      account: user0.address,
+      market: ethUsdMarket,
+      collateralToken: wnt,
+      isLong: true,
+      minPrices: [expandDecimals(1000, 4), expandDecimals(1, 6)],
+      maxPrices: [expandDecimals(1000, 4), expandDecimals(1, 6)],
+      gasUsageLabel: "liquidationHandler.executeLiquidation",
+    });
+
+    // User2 closes their position and has been earning funding fees.
     await handleOrder(fixture, {
       create: {
         account: user2,
@@ -195,15 +202,14 @@ describe.only("Guardian", () => {
         shouldUnwrapNativeToken: false,
       },
     });
+
     expect(await getAccountPositionCount(dataStore, user2.address)).eq(0);
 
-    // User1 is unable to claim funding fees.
+    // User1 is able to claim funding fees now.
+    await exchangeRouter.connect(user1).claimFundingFees([ethUsdMarket.marketToken], [wnt.address], user1.address);
+    // However, User2 is is now stuck.
     await expect(
-      exchangeRouter.connect(user1).claimFundingFees([ethUsdMarket.marketToken], [wnt.address], user1.address)
-    ).to.be.revertedWithCustomError(errorsContract, "InvalidMarketTokenBalance");
-    // User2 is unable to claim their tiny amount of funding fees.
-    await expect(
-      exchangeRouter.connect(user2).claimFundingFees([ethUsdMarket.marketToken], [wnt.address], user1.address)
+      exchangeRouter.connect(user2).claimFundingFees([ethUsdMarket.marketToken], [wnt.address], user2.address)
     ).to.be.revertedWithCustomError(errorsContract, "InvalidMarketTokenBalance");
   });
 });
