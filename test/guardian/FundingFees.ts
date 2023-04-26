@@ -220,7 +220,6 @@ describe("Guardian.PoCs", () => {
     // Total FundingFees paid by User3
     const totalFeesPaidByUser3 = await user3Position.fees.funding.fundingFeeAmount;
 
-    console.log(">> Closing User 0...");
     // User0 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -239,7 +238,6 @@ describe("Guardian.PoCs", () => {
       },
     });
 
-    console.log(">> Closing User 1...");
     // User1 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -258,7 +256,6 @@ describe("Guardian.PoCs", () => {
       },
     });
 
-    console.log(">> Closing User 2...");
     // User2 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -277,7 +274,6 @@ describe("Guardian.PoCs", () => {
       },
     });
 
-    console.log(">> Closing User 3...");
     // User3 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -298,8 +294,6 @@ describe("Guardian.PoCs", () => {
 
     // Get market balance
     const marketBalance = await usdc.balanceOf(ethUsdSingleTokenMarket.marketToken);
-
-    console.log("Market balance", ethers.utils.formatUnits(marketBalance, 6));
 
     // Check how much each user paid and how much each user claimed in funding fees.
 
@@ -326,8 +320,6 @@ describe("Guardian.PoCs", () => {
       .claimFundingFees([ethUsdSingleTokenMarket.marketToken], [usdc.address], user1.address);
     const balanceAfter = await usdc.balanceOf(user1.address);
     const amountClaimed = balanceAfter.sub(balanceBefore);
-
-    console.log("CLaimed: ", ethers.utils.formatUnits(amountClaimed, 6));
 
     await exchangeRouter
       .connect(user2)
@@ -505,7 +497,6 @@ describe("Guardian.PoCs", () => {
     // Total FundingFees paid by User3
     const totalFeesPaidByUser3 = await user3Position.fees.funding.fundingFeeAmount;
 
-    console.log(">> Closing User 0...");
     // User0 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -524,7 +515,6 @@ describe("Guardian.PoCs", () => {
       },
     });
 
-    console.log(">> Closing User 1...");
     // User1 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -543,7 +533,6 @@ describe("Guardian.PoCs", () => {
       },
     });
 
-    console.log(">> Closing User 2...");
     // User2 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -562,7 +551,6 @@ describe("Guardian.PoCs", () => {
       },
     });
 
-    console.log(">> Closing User 3...");
     // User3 MarketDecrease for the whole position size
     await handleOrder(fixture, {
       create: {
@@ -583,8 +571,6 @@ describe("Guardian.PoCs", () => {
 
     // Get market balance
     const marketBalance = await usdc.balanceOf(ethUsdMarket.marketToken);
-
-    console.log("Market balance", ethers.utils.formatUnits(marketBalance, 6));
 
     // Check how much each user paid and how much each user claimed in funding fees.
 
@@ -611,8 +597,6 @@ describe("Guardian.PoCs", () => {
       .claimFundingFees([ethUsdSingleTokenMarket.marketToken], [usdc.address], user1.address);
     const balanceAfter = await usdc.balanceOf(user1.address);
     const amountClaimed = balanceAfter.sub(balanceBefore);
-
-    console.log("Claimed: ", ethers.utils.formatUnits(amountClaimed, 6));
 
     await exchangeRouter
       .connect(user2)
