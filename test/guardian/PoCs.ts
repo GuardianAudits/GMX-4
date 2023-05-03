@@ -36,7 +36,9 @@ describe("Guardian.PoCs", () => {
       exchangeRouter,
       errors,
     } = fixture.contracts);
+  });
 
+  it("CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async () => {
     await handleDeposit(fixture, {
       create: {
         market: ethUsdMarket,
@@ -44,9 +46,7 @@ describe("Guardian.PoCs", () => {
         shortTokenAmount: expandDecimals(1000, 9),
       },
     });
-  });
 
-  it("CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async () => {
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 9));
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 9));
     await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
@@ -107,7 +107,7 @@ describe("Guardian.PoCs", () => {
   });
 
   it.only("CRITICAL: Malicious Actor Can Brick Markets", async function () {
-    const USER_1_DEPOSIT_AMOUNT = expandDecimals(100_000, 6);
+    const USER_1_DEPOSIT_AMOUNT = expandDecimals(100_000, 18);
 
     // Set price impact factors such that negative price impact is greater than positive price impact.
     // This will occur somewhat often on the exchange, but notice that a similar effect can always be engineered
@@ -116,29 +116,20 @@ describe("Guardian.PoCs", () => {
     // set negative price impact to 0.5% for every $50,000 of token imbalance
     // 0.5% => 0.005
     // 0.005 / 50,000 => 1 * (10 ** -7)
-    await dataStore.setUint(
-      keys.positionImpactFactorKey(ethUsdSingleTokenMarket.marketToken, false),
-      decimalToFloat(1, 7)
-    );
+    await dataStore.setUint(keys.positionImpactFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 7));
 
     // set positive price impact to 0.01% for every $50,000 of token imbalance
     // 0.1% => 0.001
     // 0.001 / 50,000 => 1 * (2 ** -8)
-    await dataStore.setUint(
-      keys.positionImpactFactorKey(ethUsdSingleTokenMarket.marketToken, true),
-      decimalToFloat(2, 8)
-    );
+    await dataStore.setUint(keys.positionImpactFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(2, 8));
 
-    await dataStore.setUint(
-      keys.positionImpactExponentFactorKey(ethUsdSingleTokenMarket.marketToken),
-      decimalToFloat(2, 0)
-    );
+    await dataStore.setUint(keys.positionImpactExponentFactorKey(ethUsdMarket.marketToken), decimalToFloat(2, 0));
 
     // User 1 deposits into the market
     await handleDeposit(fixture, {
       create: {
         account: user1,
-        market: ethUsdSingleTokenMarket,
+        market: ethUsdMarket,
         longTokenAmount: USER_1_DEPOSIT_AMOUNT,
       },
     });
@@ -147,7 +138,7 @@ describe("Guardian.PoCs", () => {
     await handleOrder(fixture, {
       create: {
         account: user1,
-        market: ethUsdSingleTokenMarket,
+        market: ethUsdMarket,
         initialCollateralToken: usdc,
         initialCollateralDeltaAmount: expandDecimals(50 * 1000, 6), // $50,000
         swapPath: [],
@@ -162,15 +153,13 @@ describe("Guardian.PoCs", () => {
     });
 
     // The position impact pool is non-zero
-    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdSingleTokenMarket.marketToken))).eq(
-      "6242197253432210"
-    );
+    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdMarket.marketToken))).eq("6242197253432210");
 
     // The user closes their position and the impact pool is still non-zero
     await handleOrder(fixture, {
       create: {
         account: user1,
-        market: ethUsdSingleTokenMarket,
+        market: ethUsdMarket,
         initialCollateralToken: usdc,
         initialCollateralDeltaAmount: 0,
         swapPath: [],
@@ -184,34 +173,28 @@ describe("Guardian.PoCs", () => {
       },
     });
 
-    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdSingleTokenMarket.marketToken))).eq(
-      "4992509675327735"
-    );
+    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdMarket.marketToken))).eq("4992509675327735");
     expect(await getPositionCount(dataStore)).to.eq(0);
 
-    const user1MarketTokenBalance = await getBalanceOf(ethUsdSingleTokenMarket.marketToken, user1.address);
+    const user1MarketTokenBalance = await getBalanceOf(ethUsdMarket.marketToken, user1.address);
 
     // The user withdraws all of their MarketTokens and a portion is left due to the position impact pool
     await handleWithdrawal(fixture, {
       create: {
         account: user1,
-        market: ethUsdSingleTokenMarket,
+        market: ethUsdMarket,
         marketTokenAmount: user1MarketTokenBalance,
       },
     });
 
-    expect(await dataStore.getUint(keys.poolAmountKey(ethUsdSingleTokenMarket.marketToken, usdc.address))).eq(
-      "24962551"
-    );
-    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdSingleTokenMarket.marketToken))).eq(
-      "4992509675327735"
-    );
+    expect(await dataStore.getUint(keys.poolAmountKey(ethUsdMarket.marketToken, wnt.address))).eq("4992509426013907");
+    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdMarket.marketToken))).eq("4992509675327735");
 
     // Now the user can open another position and becomes negatively impacted again
     await handleOrder(fixture, {
       create: {
         account: user1,
-        market: ethUsdSingleTokenMarket,
+        market: ethUsdMarket,
         initialCollateralToken: usdc,
         initialCollateralDeltaAmount: expandDecimals(5 * 1000, 6),
         swapPath: [],
@@ -227,12 +210,8 @@ describe("Guardian.PoCs", () => {
 
     expect(await getPositionCount(dataStore)).to.eq(1);
 
-    expect(await dataStore.getUint(keys.poolAmountKey(ethUsdSingleTokenMarket.marketToken, usdc.address))).eq(
-      "24962551"
-    );
-    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdSingleTokenMarket.marketToken))).gt(
-      "4992509675327735"
-    );
+    expect(await dataStore.getUint(keys.poolAmountKey(ethUsdMarket.marketToken, wnt.address))).eq("4992509426013907");
+    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdMarket.marketToken))).gt("4992509675327735");
 
     // Underflow revert occurs when anyone attempts to deposit now since the getPoolValueInfo function will
     // attempt to subtract the larger impact pool value from the smaller poolAmount value.
@@ -241,7 +220,7 @@ describe("Guardian.PoCs", () => {
     await handleDeposit(fixture, {
       create: {
         account: user1,
-        market: ethUsdSingleTokenMarket,
+        market: ethUsdMarket,
         longTokenAmount: USER_1_DEPOSIT_AMOUNT,
       },
     });
