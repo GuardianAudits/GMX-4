@@ -14,6 +14,7 @@ import "../data/Keys.sol";
 import "../pricing/PositionPricingUtils.sol";
 import "../order/BaseOrderUtils.sol";
 
+import "hardhat/console.sol";
 // @title PositionUtils
 // @dev Library for position functions
 library PositionUtils {
@@ -382,10 +383,23 @@ library PositionUtils {
             + cache.positionPnlUsd
             + cache.priceImpactUsd
             - collateralCostUsd.toInt256();
+    
+            console.log("cache.collateralUsd : ", cache.collateralUsd);
+            console.log("cache.positionPnlUsd : " );
+            console.logInt(cache.positionPnlUsd);
+            console.log("collateralCostUsd : ", collateralCostUsd);
+            console.log("cache.priceImpactUsd : " );
+            console.logInt(cache.priceImpactUsd);
 
         if (shouldValidateMinCollateralUsd) {
             cache.minCollateralUsd = dataStore.getUint(Keys.MIN_COLLATERAL_USD).toInt256();
+            console.log("cache.minCollateralUsd : " );
+            console.logInt(cache.minCollateralUsd);            
+            console.log("cache.remainingCollateralUsd : " );
+            console.logInt(cache.remainingCollateralUsd);
+            console.log();
             if (cache.remainingCollateralUsd < cache.minCollateralUsd) {
+                console.log("HERE");
                 return true;
             }
         }
@@ -402,6 +416,8 @@ library PositionUtils {
         cache.minCollateralUsdForLeverage = Precision.applyFactor(position.sizeInUsd(), cache.minCollateralFactor).toInt256();
 
         if (cache.remainingCollateralUsd < cache.minCollateralUsdForLeverage) {
+                            console.log("HERE 2");
+
             return true;
         }
 

@@ -29,7 +29,7 @@ describe("Guardian", () => {
 
   it.only("Long with short", async () => {
     expect(await getAccountPositionCount(dataStore, user0.address)).eq(0);
-
+console.log("increase");
     await handleOrder(fixture, {
       create: {
         market: ethUsdMarket,
@@ -49,6 +49,7 @@ describe("Guardian", () => {
     expect(await getOrderCount(dataStore)).eq(0);
 
     await grantRole(roleStore, wallet.address, "LIQUIDATION_KEEPER");
+    console.log("LIQUIDATION #1");
 
     await expect(
       executeLiquidation(fixture, {
@@ -56,14 +57,15 @@ describe("Guardian", () => {
         market: ethUsdMarket,
         collateralToken: usdc,
         isLong: true,
-        minPrices: [expandDecimals(4200, 4), expandDecimals(1, 6)],
-        maxPrices: [expandDecimals(4200, 4), expandDecimals(1, 6)],
+        minPrices: [expandDecimals(5000, 4), expandDecimals(84, 4)],
+        maxPrices: [expandDecimals(5000, 4), expandDecimals(84, 4)],
         gasUsageLabel: "liquidationHandler.executeLiquidation",
       })
     ).to.be.revertedWithCustomError(errorsContract, "PositionShouldNotBeLiquidated");
 
     expect(await getAccountPositionCount(dataStore, user0.address)).eq(1);
     expect(await getOrderCount(dataStore)).eq(0);
+    console.log("LIQUIDATION #2");
 
     await expect(
       executeLiquidation(fixture, {
@@ -71,11 +73,12 @@ describe("Guardian", () => {
         market: ethUsdMarket,
         collateralToken: usdc,
         isLong: true,
-        minPrices: [expandDecimals(4000, 4), expandDecimals(1, 6)],
-        maxPrices: [expandDecimals(4000, 4), expandDecimals(1, 6)],
+        minPrices: [expandDecimals(5000, 4), expandDecimals(80, 4)],
+        maxPrices: [expandDecimals(5000, 4), expandDecimals(80, 4)],
         gasUsageLabel: "liquidationHandler.executeLiquidation",
       })
-    ).to.be.revertedWithCustomError(errorsContract, "PositionShouldNotBeLiquidated");
+    )
+    expect(await getAccountPositionCount(dataStore, user0.address)).eq(1);
 
     expect(await getOrderCount(dataStore)).eq(0);
   });

@@ -29,6 +29,7 @@ describe("Guardian", () => {
 
   it.only("Long with long", async () => {
     expect(await getAccountPositionCount(dataStore, user0.address)).eq(0);
+    console.log("increase");
 
     await handleOrder(fixture, {
       create: {
@@ -49,6 +50,7 @@ describe("Guardian", () => {
     expect(await getOrderCount(dataStore)).eq(0);
 
     await grantRole(roleStore, wallet.address, "LIQUIDATION_KEEPER");
+    console.log("LIQUIDATION #1");
 
     await expect(
       executeLiquidation(fixture, {
@@ -64,6 +66,7 @@ describe("Guardian", () => {
 
     expect(await getAccountPositionCount(dataStore, user0.address)).eq(1);
     expect(await getOrderCount(dataStore)).eq(0);
+    console.log("LIQUIDATION #2");
 
     await executeLiquidation(fixture, {
       account: user0.address,
