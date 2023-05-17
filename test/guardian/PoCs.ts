@@ -16,7 +16,7 @@ import { executeLiquidation } from "../../utils/liquidation";
 import { handleWithdrawal } from "../../utils/withdrawal";
 import { getBalanceOf, getSupplyOf } from "../../utils/token";
 
-describe("Guardian.PoCs", () => {
+describe.only("Guardian.PoCs", () => {
   let fixture;
   let wallet, user0, user1, user2, user3, reader;
   let roleStore, dataStore, ethUsdMarket, wnt, usdc, ethUsdSingleTokenMarket, referralStorage, exchangeRouter, errors;
@@ -38,7 +38,7 @@ describe("Guardian.PoCs", () => {
     } = fixture.contracts);
   });
 
-  it("CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async () => {
+  it("DPCU-1 CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async () => {
     await handleDeposit(fixture, {
       create: {
         market: ethUsdMarket,
@@ -106,7 +106,7 @@ describe("Guardian.PoCs", () => {
     expect(await getOrderCount(dataStore)).eq(0);
   });
 
-  it.only("CRITICAL: Malicious Actor Can Brick Markets", async function () {
+  it("MKTU-1 HIGH: Malicious Actor Can Brick Markets", async function () {
     const USER_1_DEPOSIT_AMOUNT = expandDecimals(100_000, 18);
 
     // Set price impact factors such that negative price impact is greater than positive price impact.
@@ -217,12 +217,164 @@ describe("Guardian.PoCs", () => {
     // attempt to subtract the larger impact pool value from the smaller poolAmount value.
     // The underflow occurs no matter what the PnL of the position is since this subtraction takes place before the
     // PnL is added to the poolValue.
+    await expect(
+      handleDeposit(fixture, {
+        create: {
+          account: user1,
+          market: ethUsdMarket,
+          longTokenAmount: USER_1_DEPOSIT_AMOUNT,
+        },
+      })
+    ).to.be.revertedWithoutReason;
+  });
+
+  it("BOU-3 HIGH: Negative PI -> Positive PI", async () => {
     await handleDeposit(fixture, {
+      create: {
+        market: ethUsdMarket,
+        longTokenAmount: expandDecimals(1000, 18),
+        shortTokenAmount: expandDecimals(1000, 9),
+      },
+    });
+
+    const prices = {
+      indexTokenPrice: {
+        min: expandDecimals(5000, 12),
+        max: expandDecimals(5000, 12),
+      },
+      longTokenPrice: {
+        min: expandDecimals(5000, 12),
+        max: expandDecimals(5000, 12),
+      },
+      shortTokenPrice: {
+        min: expandDecimals(1, 24),
+        max: expandDecimals(1, 24),
+      },
+    };
+
+    expect(await getAccountPositionCount(dataStore, user0.address)).eq(0);
+
+    // PI
+    await dataStore.setUint(keys.maxPositionImpactFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(0));
+    await dataStore.setUint(keys.positionImpactFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 8));
+    await dataStore.setUint(keys.positionImpactFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(2, 8));
+    await dataStore.setUint(keys.positionImpactExponentFactorKey(ethUsdMarket.marketToken), decimalToFloat(2, 0));
+
+    // Dummy Impact Pool Amount
+    await dataStore.setUint(keys.positionImpactPoolAmountKey(ethUsdMarket.marketToken), "816326530612244898");
+
+    // User0 creates a long with size $200,000 which negatively affects the OI balance
+    await handleOrder(fixture, {
+      create: {
+        market: ethUsdMarket,
+        initialCollateralToken: wnt,
+        initialCollateralDeltaAmount: expandDecimals(10, 18),
+        sizeDeltaUsd: decimalToFloat(200 * 1000),
+        acceptablePrice: expandDecimals(4900, 12),
+        triggerPrice: expandDecimals(5000, 12),
+        orderType: OrderType.LimitIncrease,
+        isLong: true,
+      },
+      execute: {
+        minPrices: [expandDecimals(4800, 4), expandDecimals(1, 6)],
+        maxPrices: [expandDecimals(4800, 4), expandDecimals(1, 6)],
+      },
+    });
+
+    const positionKeys = await getPositionKeys(dataStore, 0, 10);
+
+    const user0Position = await reader.getPositionInfo(
+      dataStore.address,
+      referralStorage.address,
+      positionKeys[0],
+      prices,
+      0,
+      ethers.constants.AddressZero,
+      true
+    );
+
+    // Although the user negatively impacted the pool, the user receives a positive
+    // impact amount. Therefore, the impact pool is drained.
+    expect(await dataStore.getUint(keys.positionImpactPoolAmountKey(ethUsdMarket.marketToken))).eq("0");
+    expect(user0Position.position.numbers.sizeInTokens).to.be.gte("40816326530612244897");
+  });
+
+  it("MKTU-3 HIGH: Borrowing fees cause bricked withdrawals", async function () {
+    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 9));
+    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 9));
+    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
+    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1));
+
+    await handleDeposit(fixture, {
+      create: {
+        market: ethUsdMarket,
+        longTokenAmount: expandDecimals(1, 18),
+      },
+    });
+
+    await handleOrder(fixture, {
       create: {
         account: user1,
         market: ethUsdMarket,
-        longTokenAmount: USER_1_DEPOSIT_AMOUNT,
+        initialCollateralToken: wnt,
+        initialCollateralDeltaAmount: expandDecimals(50, 18),
+        swapPath: [],
+        sizeDeltaUsd: expandDecimals(500, 30),
+        acceptablePrice: expandDecimals(5001, 12),
+        executionFee: expandDecimals(1, 15),
+        minOutputAmount: 0,
+        orderType: OrderType.MarketIncrease,
+        isLong: true,
+        shouldUnwrapNativeToken: false,
       },
     });
+
+    await handleOrder(fixture, {
+      create: {
+        account: user2,
+        market: ethUsdMarket,
+        initialCollateralToken: wnt,
+        initialCollateralDeltaAmount: expandDecimals(50, 18),
+        swapPath: [],
+        sizeDeltaUsd: expandDecimals(1000, 30),
+        acceptablePrice: expandDecimals(5001, 12),
+        executionFee: expandDecimals(1, 15),
+        minOutputAmount: 0,
+        orderType: OrderType.MarketIncrease,
+        isLong: true,
+        shouldUnwrapNativeToken: false,
+      },
+    });
+
+    await handleOrder(fixture, {
+      create: {
+        account: user3,
+        market: ethUsdMarket,
+        initialCollateralToken: wnt,
+        initialCollateralDeltaAmount: expandDecimals(50, 18),
+        swapPath: [],
+        sizeDeltaUsd: expandDecimals(1000, 30),
+        acceptablePrice: expandDecimals(5001, 12),
+        executionFee: expandDecimals(1, 15),
+        minOutputAmount: 0,
+        orderType: OrderType.MarketIncrease,
+        isLong: true,
+        shouldUnwrapNativeToken: false,
+      },
+    });
+
+    expect(await getPositionCount(dataStore)).to.eq(3);
+
+    await time.increase(7 * 24 * 60 * 60);
+
+    // User does not even have to withdraw entire amount to get `Invalid state, negative poolAmount`
+    await expect(
+      handleWithdrawal(fixture, {
+        create: {
+          market: ethUsdMarket,
+          marketTokenAmount: expandDecimals(5000, 18),
+        },
+      })
+    ).to.be.revertedWithoutReason;
   });
 });
