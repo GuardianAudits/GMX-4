@@ -38,7 +38,7 @@ describe.only("Guardian.PoCs", () => {
     } = fixture.contracts);
   });
 
-  it("CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async () => {
+  it("DPCU-1 CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async () => {
     await handleDeposit(fixture, {
       create: {
         market: ethUsdMarket,
@@ -106,7 +106,7 @@ describe.only("Guardian.PoCs", () => {
     expect(await getOrderCount(dataStore)).eq(0);
   });
 
-  it("CRITICAL: Malicious Actor Can Brick Markets", async function () {
+  it("MKTU-1 HIGH: Malicious Actor Can Brick Markets", async function () {
     const USER_1_DEPOSIT_AMOUNT = expandDecimals(100_000, 18);
 
     // Set price impact factors such that negative price impact is greater than positive price impact.
@@ -217,16 +217,18 @@ describe.only("Guardian.PoCs", () => {
     // attempt to subtract the larger impact pool value from the smaller poolAmount value.
     // The underflow occurs no matter what the PnL of the position is since this subtraction takes place before the
     // PnL is added to the poolValue.
-    await handleDeposit(fixture, {
-      create: {
-        account: user1,
-        market: ethUsdMarket,
-        longTokenAmount: USER_1_DEPOSIT_AMOUNT,
-      },
-    });
+    await expect(
+      handleDeposit(fixture, {
+        create: {
+          account: user1,
+          market: ethUsdMarket,
+          longTokenAmount: USER_1_DEPOSIT_AMOUNT,
+        },
+      })
+    ).to.be.revertedWithoutReason;
   });
 
-  it.only("BOU-3 HIGH: Negative PI -> Positive PI", async () => {
+  it("BOU-3 HIGH: Negative PI -> Positive PI", async () => {
     await handleDeposit(fixture, {
       create: {
         market: ethUsdMarket,
@@ -297,7 +299,7 @@ describe.only("Guardian.PoCs", () => {
     expect(user0Position.position.numbers.sizeInTokens).to.be.gte("40816326530612244897");
   });
 
-  it.only("MKTU-3 HIGH: Borrowing fees cause bricked withdrawals", async function () {
+  it("MKTU-3 HIGH: Borrowing fees cause bricked withdrawals", async function () {
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 9));
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 9));
     await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
@@ -366,7 +368,6 @@ describe.only("Guardian.PoCs", () => {
     await time.increase(7 * 24 * 60 * 60);
 
     // User does not even have to withdraw entire amount to get `Invalid state, negative poolAmount`
-    console.log("HERE");
     await expect(
       handleWithdrawal(fixture, {
         create: {
