@@ -377,4 +377,81 @@ describe.only("Guardian.PoCs", () => {
       })
     ).to.be.revertedWithoutReason;
   });
+
+  it("DPCU-3 HIGH: Unliquidatable position due to capped PI", async () => {
+    await handleDeposit(fixture, {
+      create: {
+        market: ethUsdMarket,
+        longTokenAmount: expandDecimals(1000, 18),
+        shortTokenAmount: expandDecimals(1000, 9),
+      },
+    });
+
+    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 9));
+    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 9));
+    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
+    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(2));
+
+    await dataStore.setUint(keys.fundingFactorKey(ethUsdMarket.marketToken), decimalToFloat(1, 10));
+    await dataStore.setUint(keys.fundingExponentFactorKey(ethUsdMarket.marketToken), decimalToFloat(1));
+
+    await dataStore.setUint(keys.positionImpactFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(2, 8));
+    await dataStore.setUint(keys.positionImpactFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(2, 8));
+    await dataStore.setUint(keys.positionImpactExponentFactorKey(ethUsdMarket.marketToken), decimalToFloat(2, 0));
+
+    // User1 creates a short with size $200,000
+    await handleOrder(fixture, {
+      create: {
+        account: user1,
+        market: ethUsdMarket,
+        initialCollateralToken: usdc,
+        initialCollateralDeltaAmount: expandDecimals(50000, 6),
+        sizeDeltaUsd: decimalToFloat(200 * 1000),
+        acceptablePrice: expandDecimals(4900, 12),
+        orderType: OrderType.MarketIncrease,
+        isLong: false,
+      },
+    });
+
+    // User2 creates a long with size $200,000
+    await handleOrder(fixture, {
+      create: {
+        account: user2,
+        market: ethUsdMarket,
+        initialCollateralToken: wnt,
+        initialCollateralDeltaAmount: expandDecimals(10, 18),
+        sizeDeltaUsd: decimalToFloat(150 * 1000),
+        acceptablePrice: expandDecimals(5100, 12),
+        orderType: OrderType.MarketIncrease,
+        isLong: true,
+      },
+    });
+
+    expect(await getAccountPositionCount(dataStore, user1.address)).eq(1);
+    expect(await getAccountPositionCount(dataStore, user2.address)).eq(1);
+    expect(await getPositionCount(dataStore)).eq(2);
+    expect(await getOrderCount(dataStore)).eq(0);
+
+    await dataStore.setUint(keys.MIN_COLLATERAL_USD, decimalToFloat(250_000)); // Position is liquidatable
+    await dataStore.setUint(keys.positionFeeFactorKey(ethUsdMarket.marketToken), decimalToFloat(5, 10));
+    await dataStore.setUint(keys.POSITION_FEE_RECEIVER_FACTOR, decimalToFloat(1, 0));
+
+    await time.increase(14 * 24 * 60 * 60);
+
+    await dataStore.setUint(keys.maxPositionImpactFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 10));
+
+    await expect(
+      executeLiquidation(fixture, {
+        account: user1.address,
+        market: ethUsdMarket,
+        collateralToken: usdc,
+        isLong: false,
+        minPrices: [expandDecimals(4600, 4), expandDecimals(1, 6)],
+        maxPrices: [expandDecimals(4600, 4), expandDecimals(1, 6)],
+      })
+    ).to.be.revertedWithCustomError(errors, "InvalidMarketTokenBalance");
+
+    expect(await getAccountPositionCount(dataStore, user1.address)).eq(1);
+    expect(await getOrderCount(dataStore)).eq(0);
+  });
 });
