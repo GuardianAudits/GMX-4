@@ -299,7 +299,7 @@ describe.only("Guardian.PoCs", () => {
     expect(user0Position.position.numbers.sizeInTokens).to.be.gte("40816326530612244897");
   });
 
-  it("MKTU-3 HIGH: Borrowing fees cause bricked withdrawals", async function () {
+  it("MKTU-3 Medium: Borrowing fees cause bricked withdrawals", async function () {
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 9));
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 9));
     await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
