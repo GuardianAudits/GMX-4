@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="c8288ff3-b86b-46b5-862f-a0e5b911c99f" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/contracts/market/MarketUtils.sol" beforeDir="false" afterPath="$PROJECT_DIR$/contracts/market/MarketUtils.sol" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/contracts/position/DecreasePositionCollateralUtils.sol" beforeDir="false" afterPath="$PROJECT_DIR$/contracts/position/DecreasePositionCollateralUtils.sol" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/contracts/position/PositionUtils.sol" beforeDir="false" afterPath="$PROJECT_DIR$/contracts/position/PositionUtils.sol" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/contracts/router/ExchangeRouter.sol" beforeDir="false" afterPath="$PROJECT_DIR$/contracts/router/ExchangeRouter.sol" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/contracts/swap/SwapUtils.sol" beforeDir="false" afterPath="$PROJECT_DIR$/contracts/swap/SwapUtils.sol" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hardhat.config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/hardhat.config.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/test/guardian/PoCs.ts" beforeDir="false" afterPath="$PROJECT_DIR$/test/guardian/PoCs.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/fixture.ts" beforeDir="false" afterPath="$PROJECT_DIR$/utils/fixture.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/keys.ts" beforeDir="false" afterPath="$PROJECT_DIR$/utils/keys.ts" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Solidity Contract" />
+        <option value="TypeScript File" />
+      </list>
+    </option>
+  </component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
+  <component name="ProjectId" id="2Obn8o9YQ1A1xG12AjhGe62oYaP" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/owenthurm/Desktop/GMX-4&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;yarn&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.lookFeel&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;/Applications/IntelliJ IDEA.app/Contents/plugins/javascript-impl/jsLanguageServicesImpl/external&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RunManager">
+    <configuration default="true" type="JetRunConfigurationType">
+      <module name="GMX-4" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="KotlinStandaloneScriptRunConfigurationType">
+      <module name="GMX-4" />
+      <option name="filePath" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="c8288ff3-b86b-46b5-862f-a0e5b911c99f" name="Changes" comment="" />
+      <created>1681837992023</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1681837992023</updated>
+      <workItem from="1681837993241" duration="2020000" />
+      <workItem from="1681857037967" duration="193000" />
+      <workItem from="1681956647880" duration="4941000" />
+      <workItem from="1682217880846" duration="6867000" />
+      <workItem from="1682304683971" duration="2457000" />
+      <workItem from="1682311371383" duration="1847000" />
+      <workItem from="1682365961778" duration="24755000" />
+      <workItem from="1682531810013" duration="10014000" />
+      <workItem from="1682809121644" duration="21563000" />
+      <workItem from="1683046555851" duration="20730000" />
+      <workItem from="1683474942578" duration="27187000" />
+      <workItem from="1683674239799" duration="33282000" />
+      <workItem from="1683849584938" duration="10664000" />
+      <workItem from="1683906920889" duration="8938000" />
+      <workItem from="1683946589116" duration="2410000" />
+      <workItem from="1684013785418" duration="23991000" />
+      <workItem from="1684114499767" duration="27899000" />
+      <workItem from="1684369996319" duration="4645000" />
+      <workItem from="1684433097400" duration="110000" />
+      <workItem from="1684441514097" duration="4982000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

