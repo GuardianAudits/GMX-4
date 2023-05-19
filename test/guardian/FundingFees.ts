@@ -13,7 +13,7 @@ import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { getPositionKeys } from "../../utils/position";
 import { getOrderCount } from "../../utils/order";
 
-describe("Guardian.PoCs", () => {
+describe("Guardian.Funding", () => {
   let fixture;
   let wallet, user0, user1, user2, user3, reader;
   let roleStore, dataStore, ethUsdMarket, wnt, usdc, ethUsdSingleTokenMarket, referralStorage, exchangeRouter;

