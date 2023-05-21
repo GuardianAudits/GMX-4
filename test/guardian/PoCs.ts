@@ -270,7 +270,7 @@ describe("Guardian.PoCs", () => {
     expect(await getWithdrawalCount(dataStore)).eq(0);
   });
 
-  it("Unliquidatable position due to unaccounted pnlAmountForPool", async function () {
+  it("DPCU-1 CRITICAL: Unliquidatable position due to unaccounted pnlAmountForPool", async function () {
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1, 7));
     await dataStore.setUint(keys.borrowingFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(2, 7));
     await dataStore.setUint(keys.borrowingExponentFactorKey(ethUsdMarket.marketToken, true), decimalToFloat(1));
