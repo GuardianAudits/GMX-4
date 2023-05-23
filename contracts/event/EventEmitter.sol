@@ -19,23 +19,23 @@ import "./EventUtils.sol";
 contract EventEmitter is RoleModule {
     event EventLog(
         address msgSender,
-        string eventName,
         string indexed eventNameHash,
+        string eventName,
         EventUtils.EventLogData eventData
     );
 
     event EventLog1(
         address msgSender,
-        string eventName,
         string indexed eventNameHash,
+        string eventName,
         bytes32 indexed topic1,
         EventUtils.EventLogData eventData
     );
 
     event EventLog2(
         address msgSender,
-        string eventName,
         string indexed eventNameHash,
+        string eventName,
         bytes32 indexed topic1,
         bytes32 indexed topic2,
         EventUtils.EventLogData eventData

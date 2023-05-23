@@ -8,6 +8,8 @@ import "../data/Keys.sol";
 // @title FeatureUtils
 // @dev Library to validate if a feature is enabled or disabled
 library FeatureUtils {
+    error DisabledFeature(bytes32 key);
+
     // @dev get whether a feature is disabled
     // @param dataStore DataStore
     // @param key the feature key
@@ -21,7 +23,7 @@ library FeatureUtils {
     // @param key the feature key
     function validateFeature(DataStore dataStore, bytes32 key) internal view {
         if (isFeatureDisabled(dataStore, key)) {
-            revert Errors.DisabledFeature(key);
+            revert DisabledFeature(key);
         }
     }
 }

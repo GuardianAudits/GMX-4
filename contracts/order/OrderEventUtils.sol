@@ -25,13 +25,12 @@ library OrderEventUtils {
     ) external {
         EventUtils.EventLogData memory eventData;
 
-        eventData.addressItems.initItems(6);
+        eventData.addressItems.initItems(5);
         eventData.addressItems.setItem(0, "account", order.account());
         eventData.addressItems.setItem(1, "receiver", order.receiver());
         eventData.addressItems.setItem(2, "callbackContract", order.callbackContract());
         eventData.addressItems.setItem(3, "market", order.market());
         eventData.addressItems.setItem(4, "initialCollateralToken", order.initialCollateralToken());
-        eventData.addressItems.setItem(5, "uiFeeReceiver", order.uiFeeReceiver());
 
         eventData.addressItems.initArrayItems(1);
         eventData.addressItems.setItem(0, "swapPath", order.swapPath());
@@ -83,20 +82,18 @@ library OrderEventUtils {
         EventEmitter eventEmitter,
         bytes32 key,
         uint256 sizeDeltaUsd,
-        uint256 acceptablePrice,
         uint256 triggerPrice,
-        uint256 minOutputAmount
+        uint256 acceptablePrice
     ) external {
         EventUtils.EventLogData memory eventData;
 
         eventData.bytes32Items.initItems(1);
         eventData.bytes32Items.setItem(0, "key", key);
 
-        eventData.uintItems.initItems(4);
+        eventData.uintItems.initItems(3);
         eventData.uintItems.setItem(0, "sizeDeltaUsd", sizeDeltaUsd);
-        eventData.uintItems.setItem(1, "acceptablePrice", acceptablePrice);
-        eventData.uintItems.setItem(2, "triggerPrice", triggerPrice);
-        eventData.uintItems.setItem(3, "minOutputAmount", minOutputAmount);
+        eventData.uintItems.setItem(1, "triggerPrice", triggerPrice);
+        eventData.uintItems.setItem(2, "acceptablePrice", acceptablePrice);
 
         eventEmitter.emitEventLog1(
             "OrderUpdated",

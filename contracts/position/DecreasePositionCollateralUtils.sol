@@ -3,7 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "../utils/Precision.sol";
-import "../error/ErrorUtils.sol";
+import "../utils/ErrorUtils.sol";
 
 import "../data/DataStore.sol";
 import "../event/EventEmitter.sol";
@@ -37,6 +37,9 @@ library DecreasePositionCollateralUtils {
     using EventUtils for EventUtils.Bytes32Items;
     using EventUtils for EventUtils.BytesItems;
     using EventUtils for EventUtils.StringItems;
+
+    error InsufficientCollateral(int256 remainingCollateralAmount);
+    error InvalidOutputToken(address tokenOut, address expectedTokenOut);
 
     struct ProcessCollateralCache {
         int256 adjustedPositionPnlUsd;
@@ -141,8 +144,7 @@ library DecreasePositionCollateralUtils {
             (bool wasSwapped, uint256 swapOutputAmount) = swapProfitToCollateralToken(
                 params,
                 cache.pnlToken,
-                values.pnlAmountForUser,
-                values.pnlAmountForPool
+                values.pnlAmountForUser
             );
 
             if (wasSwapped) {
@@ -157,19 +159,14 @@ library DecreasePositionCollateralUtils {
             }
         }
 
-        PositionPricingUtils.GetPositionFeesParams memory getPositionFeesParams = PositionPricingUtils.GetPositionFeesParams(
+        PositionPricingUtils.PositionFees memory fees = PositionPricingUtils.getPositionFees(
             params.contracts.dataStore,
             params.contracts.referralStorage,
             params.position,
             collateralTokenPrice,
             params.market.longToken,
             params.market.shortToken,
-            params.order.sizeDeltaUsd(),
-            params.order.uiFeeReceiver()
-        );
-
-        PositionPricingUtils.PositionFees memory fees = PositionPricingUtils.getPositionFees(
-            getPositionFeesParams
+            params.order.sizeDeltaUsd()
         );
 
         // if there is a positive outputAmount, use the outputAmount to pay for fees and price impact
@@ -177,15 +174,15 @@ library DecreasePositionCollateralUtils {
         if (values.output.outputToken == params.position.collateralToken() && values.output.outputAmount > 0) {
             if (values.output.outputAmount > fees.totalNetCostAmount) {
                 values.output.outputAmount -= fees.totalNetCostAmount;
-                fees.collateralCostAmount = 0;
+                fees.totalNetCostAmount = 0;
             } else {
-                fees.collateralCostAmount -= values.output.outputAmount;
+                fees.totalNetCostAmount -= values.output.outputAmount;
                 values.output.outputAmount = 0;
             }
         }
 
         // deduct remaining fees from the position's collateral
-        values.remainingCollateralAmount -= fees.collateralCostAmount.toInt256();
+        values.remainingCollateralAmount -= fees.totalNetCostAmount.toInt256();
 
         // if there is insufficient collateral remaining then prioritize using the collateral to pay
         // funding fees, the rest of the collateral is sent to the pool
@@ -200,12 +197,10 @@ library DecreasePositionCollateralUtils {
         // closing the position with zero price impact, just that if there were any collateral that could
         // partially pay for negative price impact, it would be sent to the pool instead
         if (BaseOrderUtils.isLiquidationOrder(params.order.orderType()) && values.remainingCollateralAmount < 0) {
-            PositionEventUtils.emitPositionFeesInfo(
+            PositionPricingUtils.emitPositionFeesInfo(
                 params.contracts.eventEmitter,
-                params.orderKey,
                 params.market.marketToken,
                 params.position.collateralToken(),
-                params.order.sizeDeltaUsd(),
                 false,
                 fees
             );
@@ -222,7 +217,7 @@ library DecreasePositionCollateralUtils {
         }
 
         if (values.remainingCollateralAmount < 0) {
-            revert Errors.InsufficientCollateral(values.remainingCollateralAmount);
+            revert InsufficientCollateral(values.remainingCollateralAmount);
         }
 
         // if there is a positive impact, the impact pool amount should be reduced
@@ -243,17 +238,12 @@ library DecreasePositionCollateralUtils {
 
             values.remainingCollateralAmount -= collateralCache.adjustedPriceImpactDiffAmount.toInt256();
 
-            // the order.receiver is meant to allow the output of an order to be
-            // received by an address that is different from the position.account
-            // address
-            // for claimable collateral, the funds are still credited to the owner
-            // of the position indicated by order.account
             MarketUtils.incrementClaimableCollateralAmount(
                 params.contracts.dataStore,
                 params.contracts.eventEmitter,
                 params.market.marketToken,
                 params.position.collateralToken(),
-                params.order.account(),
+                params.order.receiver(),
                 collateralCache.adjustedPriceImpactDiffAmount
             );
         }
@@ -267,16 +257,6 @@ library DecreasePositionCollateralUtils {
             Keys.POSITION_FEE
         );
 
-        FeeUtils.incrementClaimableUiFeeAmount(
-            params.contracts.dataStore,
-            params.contracts.eventEmitter,
-            params.order.uiFeeReceiver(),
-            params.market.marketToken,
-            params.position.collateralToken(),
-            fees.ui.uiFeeAmount,
-            Keys.UI_POSITION_FEE
-        );
-
         return (values, fees);
     }
 
@@ -288,7 +268,10 @@ library DecreasePositionCollateralUtils {
         int256 priceImpactUsd = PositionPricingUtils.getPriceImpactUsd(
             PositionPricingUtils.GetPriceImpactUsdParams(
                 params.contracts.dataStore,
-                params.market,
+                params.market.marketToken,
+                params.market.indexToken,
+                params.market.longToken,
+                params.market.shortToken,
                 -sizeDeltaUsd.toInt256(),
                 params.order.isLong()
             )
@@ -339,8 +322,6 @@ library DecreasePositionCollateralUtils {
         return (executionPrice, priceImpactAmount, priceImpactDiffUsd);
     }
 
-    // for simplicity all fee values are set to zero in case there is insufficient
-    // collateral to cover all fees
     function getLiquidationValues(
         PositionUtils.UpdatePositionParams memory params,
         PositionUtils.DecreasePositionCollateralValues memory values,
@@ -363,12 +344,13 @@ library DecreasePositionCollateralUtils {
                 params.position.collateralAmount()
             );
         } else {
-            values.pnlTokenForPool = params.position.collateralToken();
             values.pnlAmountForPool = (params.position.collateralAmount() - fees.funding.fundingFeeAmount).toInt256();
         }
 
+        PositionPricingUtils.PositionFees memory _fees;
+
         PositionUtils.DecreasePositionCollateralValues memory _values = PositionUtils.DecreasePositionCollateralValues(
-            values.pnlTokenForPool, // pnlTokenForPool
+            values.pnlTokenForPool,
             values.executionPrice, // executionPrice
             0, // remainingCollateralAmount
             values.positionPnlUsd, // positionPnlUsd
@@ -385,12 +367,6 @@ library DecreasePositionCollateralUtils {
                 0
             )
         );
-
-        PositionPricingUtils.PositionFees memory _fees;
-
-        // allow the accumulated funding fees to still be claimable
-        _fees.funding.claimableLongTokenAmount = fees.funding.claimableLongTokenAmount;
-        _fees.funding.claimableShortTokenAmount = fees.funding.claimableShortTokenAmount;
 
         return (_values, _fees);
     }
@@ -410,18 +386,16 @@ library DecreasePositionCollateralUtils {
                     params.contracts.eventEmitter,
                     params.contracts.oracle,
                     Bank(payable(params.market.marketToken)),
-                    params.orderKey,
                     params.position.collateralToken(), // tokenIn
                     values.output.outputAmount, // amountIn
                     swapPathMarkets, // markets
                     0, // minOutputAmount
                     params.market.marketToken, // receiver
-                    params.order.uiFeeReceiver(), // uiFeeReceiver
                     false // shouldUnwrapNativeToken
                 )
             ) returns (address tokenOut, uint256 swapOutputAmount) {
                 if (tokenOut != values.output.secondaryOutputToken) {
-                    revert Errors.InvalidOutputToken(tokenOut, values.output.secondaryOutputToken);
+                    revert InvalidOutputToken(tokenOut, values.output.secondaryOutputToken);
                 }
                 // combine the values into outputToken and outputAmount
                 values.output.outputToken = tokenOut;
@@ -442,16 +416,11 @@ library DecreasePositionCollateralUtils {
     function swapProfitToCollateralToken(
         PositionUtils.UpdatePositionParams memory params,
         address pnlToken,
-        uint256 profitAmount,
-        int256 poolAmountDelta
+        uint256 profitAmount
     ) internal returns (bool, uint256) {
         if (params.order.decreasePositionSwapType() == Order.DecreasePositionSwapType.SwapPnlTokenToCollateralToken) {
             Market.Props[] memory swapPathMarkets = new Market.Props[](1);
             swapPathMarkets[0] = params.market;
-
-            // adjust the pool amount by the poolAmountDelta so that the price impact of the swap will be
-            // more accurately calculated
-            params.contracts.dataStore.setInt(Keys.poolAmountAdjustmentKey(params.market.marketToken, pnlToken), poolAmountDelta);
 
             try params.contracts.swapHandler.swap(
                 SwapUtils.SwapParams(
@@ -459,13 +428,11 @@ library DecreasePositionCollateralUtils {
                     params.contracts.eventEmitter,
                     params.contracts.oracle,
                     Bank(payable(params.market.marketToken)),
-                    params.orderKey,
                     pnlToken, // tokenIn
                     profitAmount, // amountIn
                     swapPathMarkets, // markets
                     0, // minOutputAmount
                     params.market.marketToken, // receiver
-                    params.order.uiFeeReceiver(), // uiFeeReceiver
                     false // shouldUnwrapNativeToken
                 )
             ) returns (address /* tokenOut */, uint256 swapOutputAmount) {
@@ -476,8 +443,6 @@ library DecreasePositionCollateralUtils {
                 (string memory reason, /* bool hasRevertMessage */) = ErrorUtils.getRevertMessage(reasonBytes);
                 emit SwapUtils.SwapReverted(reason, reasonBytes);
             }
-
-            params.contracts.dataStore.setInt(Keys.poolAmountAdjustmentKey(params.market.marketToken, pnlToken), 0);
         }
 
         return (false, 0);

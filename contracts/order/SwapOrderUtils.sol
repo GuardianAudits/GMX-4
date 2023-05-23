@@ -12,11 +12,13 @@ library SwapOrderUtils {
     using Order for Order.Props;
     using Array for uint256[];
 
+    error UnexpectedMarket();
+
     // @dev process a swap order
     // @param params BaseOrderUtils.ExecuteOrderParams
     function processOrder(BaseOrderUtils.ExecuteOrderParams memory params) external {
         if (params.order.market() != address(0)) {
-            revert Errors.UnexpectedMarket();
+            revert UnexpectedMarket();
         }
 
         validateOracleBlockNumbers(
@@ -31,13 +33,11 @@ library SwapOrderUtils {
             params.contracts.eventEmitter,
             params.contracts.oracle,
             params.contracts.orderVault,
-            params.key,
             params.order.initialCollateralToken(),
             params.order.initialCollateralDeltaAmount(),
             params.swapPathMarkets,
             params.order.minOutputAmount(),
             params.order.receiver(),
-            params.order.uiFeeReceiver(),
             params.order.shouldUnwrapNativeToken()
         ));
 
@@ -65,11 +65,11 @@ library SwapOrderUtils {
 
         if (orderType == Order.OrderType.LimitSwap) {
             if (!minOracleBlockNumbers.areGreaterThan(orderUpdatedAtBlock)) {
-                revert Errors.OracleBlockNumbersAreSmallerThanRequired(minOracleBlockNumbers, orderUpdatedAtBlock);
+                OracleUtils.revertOracleBlockNumbersAreSmallerThanRequired(minOracleBlockNumbers, orderUpdatedAtBlock);
             }
             return;
         }
 
-        revert Errors.UnsupportedOrderType();
+        BaseOrderUtils.revertUnsupportedOrderType();
     }
 }

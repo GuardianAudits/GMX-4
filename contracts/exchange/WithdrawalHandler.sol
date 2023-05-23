@@ -3,7 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "../utils/GlobalReentrancyGuard.sol";
-import "../error/ErrorUtils.sol";
+import "../utils/ErrorUtils.sol";
 
 import "./ExchangeUtils.sol";
 import "../role/RoleModule.sol";
@@ -103,7 +103,8 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
         try this._executeWithdrawal(
             key,
             oracleParams,
-            msg.sender
+            msg.sender,
+            startingGas
         ) {
         } catch (bytes memory reasonBytes) {
             _handleWithdrawalError(
@@ -126,12 +127,14 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
         globalNonReentrant
     {
 
+        uint256 startingGas = gasleft();
         OracleUtils.SetPricesParams memory oracleParams;
 
         this._executeWithdrawal(
             key,
             oracleParams,
-            msg.sender
+            msg.sender,
+            startingGas
         );
     }
 
@@ -142,10 +145,9 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
     function _executeWithdrawal(
         bytes32 key,
         OracleUtils.SetPricesParams memory oracleParams,
-        address keeper
+        address keeper,
+        uint256 startingGas
     ) external onlySelf {
-        uint256 startingGas = gasleft();
-
         FeatureUtils.validateFeature(dataStore, Keys.executeWithdrawalFeatureDisabledKey(address(this)));
 
         uint256[] memory minOracleBlockNumbers = OracleUtils.getUncompactedOracleBlockNumbers(
@@ -183,8 +185,8 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
         bytes4 errorSelector = ErrorUtils.getErrorSelectorFromData(reasonBytes);
 
         if (
-            OracleUtils.isOracleError(errorSelector) ||
-            errorSelector == Errors.DisabledFeature.selector
+            OracleUtils.isEmptyPriceError(errorSelector) ||
+            errorSelector == FeatureUtils.DisabledFeature.selector
         ) {
 
             ErrorUtils.revertWithCustomError(reasonBytes);

@@ -32,7 +32,7 @@ contract MockPriceFeed is IPriceFeed {
             uint80(0), // roundId
             answer, // answer
             0, // startedAt
-            block.timestamp - 60, // updatedAt
+            0, // updatedAt
             uint80(0) // answeredInRound
         );
     }

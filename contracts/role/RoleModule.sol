@@ -11,6 +11,8 @@ import "./RoleStore.sol";
 contract RoleModule {
     RoleStore public immutable roleStore;
 
+    error Unauthorized(address msgSender, string role);
+
     /**
      * @dev Constructor that initializes the role store for this contract.
      *
@@ -25,7 +27,7 @@ contract RoleModule {
      */
     modifier onlySelf() {
         if (msg.sender != address(this)) {
-            revert Errors.Unauthorized(msg.sender, "SELF");
+            revert Unauthorized(msg.sender, "SELF");
         }
         _;
     }
@@ -128,7 +130,7 @@ contract RoleModule {
      */
     function _validateRole(bytes32 role, string memory roleName) internal view {
         if (!roleStore.hasRole(msg.sender, role)) {
-            revert Errors.Unauthorized(msg.sender, roleName);
+            revert Unauthorized(msg.sender, roleName);
         }
     }
 }

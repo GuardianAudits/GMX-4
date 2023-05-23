@@ -35,7 +35,6 @@ library LiquidationUtils {
             account, // account
             account, // receiver
             address(0), // callbackContract
-            address(0), // uiFeeReceiver
             market, // market
             position.collateralToken(), // initialCollateralToken
             new address[](0) // swapPath
@@ -43,7 +42,7 @@ library LiquidationUtils {
 
         Order.Numbers memory numbers = Order.Numbers(
             Order.OrderType.Liquidation, // orderType
-            Order.DecreasePositionSwapType.SwapPnlTokenToCollateralToken, // decreasePositionSwapType
+            Order.DecreasePositionSwapType.NoSwap, // decreasePositionSwapType
             position.sizeInUsd(), // sizeDeltaUsd
             0, // initialCollateralDeltaAmount
             0, // triggerPrice

@@ -3,7 +3,6 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import "../error/Errors.sol";
 
 /**
  * @title Array
@@ -11,6 +10,25 @@ import "../error/Errors.sol";
  */
 library Array {
     using SafeCast for int256;
+
+    error CompactedArrayOutOfBounds(
+        uint256[] compactedValues,
+        uint256 index,
+        uint256 slotIndex,
+        string label
+    );
+
+    error ArrayOutOfBoundsUint256(
+        uint256[] values,
+        uint256 index,
+        string label
+    );
+
+    error ArrayOutOfBoundsBytes(
+        bytes[] values,
+        uint256 index,
+        string label
+    );
 
     /**
      * @dev Gets the value of the element at the specified index in the given array. If the index is out of bounds, returns 0.
@@ -35,7 +53,7 @@ library Array {
      * @return true if all of the elements in the array are equal to the specified value, false otherwise
      */
     function areEqualTo(uint256[] memory arr, uint256 value) internal pure returns (bool) {
-        for (uint256 i; i < arr.length; i++) {
+        for (uint256 i = 0; i < arr.length; i++) {
             if (arr[i] != value) {
                 return false;
             }
@@ -52,7 +70,7 @@ library Array {
      * @return true if all of the elements in the array are greater than the specified value, false otherwise
      */
     function areGreaterThan(uint256[] memory arr, uint256 value) internal pure returns (bool) {
-        for (uint256 i; i < arr.length; i++) {
+        for (uint256 i = 0; i < arr.length; i++) {
             if (arr[i] <= value) {
                 return false;
             }
@@ -69,7 +87,7 @@ library Array {
      * @return true if all of the elements in the array are greater than or equal to the specified value, false otherwise
      */
     function areGreaterThanOrEqualTo(uint256[] memory arr, uint256 value) internal pure returns (bool) {
-        for (uint256 i; i < arr.length; i++) {
+        for (uint256 i = 0; i < arr.length; i++) {
             if (arr[i] < value) {
                 return false;
             }
@@ -86,7 +104,7 @@ library Array {
      * @return true if all of the elements in the array are less than the specified value, false otherwise
      */
     function areLessThan(uint256[] memory arr, uint256 value) internal pure returns (bool) {
-        for (uint256 i; i < arr.length; i++) {
+        for (uint256 i = 0; i < arr.length; i++) {
             if (arr[i] >= value) {
                 return false;
             }
@@ -103,7 +121,7 @@ library Array {
      * @return true if all of the elements in the array are less than or equal to the specified value, false otherwise
      */
     function areLessThanOrEqualTo(uint256[] memory arr, uint256 value) internal pure returns (bool) {
-        for (uint256 i; i < arr.length; i++) {
+        for (uint256 i = 0; i < arr.length; i++) {
             if (arr[i] > value) {
                 return false;
             }
@@ -146,7 +164,7 @@ library Array {
 
         uint256 slotIndex = index / compactedValuesPerSlot;
         if (slotIndex >= compactedValues.length) {
-            revert Errors.CompactedArrayOutOfBounds(compactedValues, index, slotIndex, label);
+            revert CompactedArrayOutOfBounds(compactedValues, index, slotIndex, label);
         }
 
         uint256 slotBits = compactedValues[slotIndex];
@@ -155,5 +173,13 @@ library Array {
         uint256 value = (slotBits >> offset) & bitmask;
 
         return value;
+    }
+
+    function revertArrayOutOfBounds(uint256[] memory values, uint256 index, string memory label) internal pure {
+        revert ArrayOutOfBoundsUint256(values, index, label);
+    }
+
+    function revertArrayOutOfBounds(bytes[] memory values, uint256 index, string memory label) internal pure {
+        revert ArrayOutOfBoundsBytes(values, index, label);
     }
 }

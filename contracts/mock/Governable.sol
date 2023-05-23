@@ -2,8 +2,6 @@
 
 pragma solidity ^0.8.0;
 
-import "../error/Errors.sol";
-
 // @title Governable
 // @dev Contract to allow for governance restricted functions
 contract Governable {
@@ -12,13 +10,15 @@ contract Governable {
 
     event SetGov(address prevGov, address nextGov);
 
+    error Unauthorized(address msgSender, string role);
+
     constructor() {
         _setGov(msg.sender);
     }
 
     modifier onlyGov() {
         if (msg.sender != gov) {
-            revert Errors.Unauthorized(msg.sender, "GOV");
+            revert Unauthorized(msg.sender, "GOV");
         }
         _;
     }
@@ -29,7 +29,7 @@ contract Governable {
 
     function acceptOwnership() external {
         if (msg.sender != pendingGov) {
-            revert Errors.Unauthorized(msg.sender, "PendingGov");
+            revert Unauthorized(msg.sender, "PendingGov");
         }
 
         _setGov(msg.sender);

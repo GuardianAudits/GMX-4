@@ -13,6 +13,7 @@ import "../data/Keys.sol";
 
 import "../pricing/PositionPricingUtils.sol";
 import "../order/BaseOrderUtils.sol";
+import "../referral/ReferralEventUtils.sol";
 
 // @title PositionUtils
 // @dev Library for position functions
@@ -26,12 +27,12 @@ library PositionUtils {
     // @dev UpdatePositionParams struct used in increasePosition to avoid
     // stack too deep errors
     //
-    // @param contracts BaseOrderUtils.ExecuteOrderParamsContracts
     // @param market the values of the trading market
     // @param order the decrease position order
-    // @param orderKey the key of the order
     // @param position the order's position
     // @param positionKey the key of the order's position
+    // @param collateral the collateralToken of the position
+    // @param collateralDeltaAmount the amount of collateralToken deposited
     struct UpdatePositionParams {
         BaseOrderUtils.ExecuteOrderParamsContracts contracts;
         Market.Props market;
@@ -56,6 +57,7 @@ library PositionUtils {
     struct WillPositionCollateralBeSufficientValues {
         uint256 positionSizeInUsd;
         uint256 positionCollateralAmount;
+        int256 positionPnlUsd;
         int256 realizedPnlUsd;
         int256 openInterestDelta;
     }
@@ -129,23 +131,22 @@ library PositionUtils {
     // to avoid stack too deep errors
     // @param positionPnlUsd the position's pnl in USD
     // @param minCollateralFactor the min collateral factor
-    // @param collateralTokenPrice the collateral token price
     // @param collateralUsd the position's collateral in USD
-    // @param usdDeltaForPriceImpact the usdDelta value for the price impact calculation
     // @param priceImpactUsd the price impact of closing the position in USD
     // @param minCollateralUsd the minimum allowed collateral in USD
     // @param remainingCollateralUsd the remaining position collateral in USD
     struct IsPositionLiquidatableCache {
         int256 positionPnlUsd;
         uint256 minCollateralFactor;
-        Price.Props collateralTokenPrice;
         uint256 collateralUsd;
-        int256 usdDeltaForPriceImpact;
         int256 priceImpactUsd;
         int256 minCollateralUsd;
         int256 minCollateralUsdForLeverage;
         int256 remainingCollateralUsd;
     }
+
+    error LiquidatablePosition();
+    error EmptyPosition(uint256 sizeInUsd, uint256 sizeInTokens, uint256 collateralAmount);
 
     // @dev get the position pnl in USD
     //
@@ -180,12 +181,14 @@ library PositionUtils {
 
         if (cache.totalPositionPnl > 0) {
             cache.pnlToken = position.isLong() ? market.longToken : market.shortToken;
-            cache.poolTokenAmount = MarketUtils.getPoolAmount(dataStore, market, cache.pnlToken);
+            cache.poolTokenAmount = MarketUtils.getPoolAmount(dataStore, market.marketToken, cache.pnlToken);
             cache.poolTokenPrice = position.isLong() ? prices.longTokenPrice.min : prices.shortTokenPrice.min;
             cache.poolTokenUsd = cache.poolTokenAmount * cache.poolTokenPrice;
             cache.poolPnl = MarketUtils.getPnl(
                 dataStore,
-                market,
+                market.marketToken,
+                market.longToken,
+                market.shortToken,
                 indexTokenPrice,
                 position.isLong(),
                 true
@@ -201,7 +204,8 @@ library PositionUtils {
             );
 
             if (cache.cappedPoolPnl != cache.poolPnl && cache.cappedPoolPnl > 0 && cache.poolPnl > 0) {
-                cache.totalPositionPnl = Precision.applyFraction(cache.totalPositionPnl.toUint256(), cache.cappedPoolPnl, cache.poolPnl.toUint256());
+                // divide by WEI_PRECISION to reduce the risk of overflow
+                cache.totalPositionPnl = cache.totalPositionPnl * (cache.cappedPoolPnl / Precision.WEI_PRECISION.toInt256()) / (cache.poolPnl / Precision.WEI_PRECISION.toInt256());
             }
         }
 
@@ -222,6 +226,15 @@ library PositionUtils {
         return (cache.positionPnlUsd, cache.sizeDeltaInTokens);
     }
 
+    // @dev convert sizeDeltaUsd to sizeDeltaInTokens
+    // @param sizeInUsd the position size in USD
+    // @param sizeInTokens the position size in tokens
+    // @param sizeDeltaUsd the position size change in USD
+    // @return the size delta in tokens
+    function getSizeDeltaInTokens(uint256 sizeInUsd, uint256 sizeInTokens, uint256 sizeDeltaUsd) internal pure returns (uint256) {
+        return sizeInTokens * sizeDeltaUsd / sizeInUsd;
+    }
+
     // @dev get the key for a position
     // @param account the position's account
     // @param market the position's market
@@ -236,8 +249,8 @@ library PositionUtils {
     // @dev validate that a position is not empty
     // @param position the position values
     function validateNonEmptyPosition(Position.Props memory position) internal pure {
-        if (position.sizeInUsd() == 0 && position.sizeInTokens() == 0 && position.collateralAmount() == 0) {
-            revert Errors.EmptyPosition();
+        if (position.sizeInUsd() == 0 || position.sizeInTokens() == 0 || position.collateralAmount() == 0) {
+            revert EmptyPosition(position.sizeInUsd(), position.sizeInTokens(), position.collateralAmount());
         }
     }
 
@@ -264,20 +277,9 @@ library PositionUtils {
         Position.Props memory position,
         Market.Props memory market,
         MarketUtils.MarketPrices memory prices,
-        bool isIncrease,
         bool shouldValidateMinCollateralUsd
     ) public view {
-        if (position.sizeInUsd() == 0 || position.sizeInTokens() == 0) {
-            revert Errors.InvalidPositionSizeValues(position.sizeInUsd(), position.sizeInTokens());
-        }
-
-        uint256 minPositionSizeUsd = dataStore.getUint(Keys.MIN_POSITION_SIZE_USD);
-        if (position.sizeInUsd() < minPositionSizeUsd) {
-            revert Errors.MinPositionSize(position.sizeInUsd(), minPositionSizeUsd);
-        }
-
-        MarketUtils.validateEnabledMarket(dataStore, market.marketToken);
-        MarketUtils.validateMarketCollateralToken(market, position.collateralToken());
+        validateNonEmptyPosition(position);
 
         if (isPositionLiquidatable(
             dataStore,
@@ -285,10 +287,9 @@ library PositionUtils {
             position,
             market,
             prices,
-            isIncrease,
             shouldValidateMinCollateralUsd
         )) {
-            revert Errors.LiquidatablePosition();
+            revert LiquidatablePosition();
         }
     }
 
@@ -304,7 +305,6 @@ library PositionUtils {
         Position.Props memory position,
         Market.Props memory market,
         MarketUtils.MarketPrices memory prices,
-        bool isIncrease,
         bool shouldValidateMinCollateralUsd
     ) public view returns (bool) {
         IsPositionLiquidatableCache memory cache;
@@ -318,21 +318,24 @@ library PositionUtils {
             position.sizeInUsd()
         );
 
-        cache.collateralTokenPrice = MarketUtils.getCachedTokenPrice(
+        cache.minCollateralFactor = MarketUtils.getMinCollateralFactor(dataStore, market.marketToken);
+
+        Price.Props memory collateralTokenPrice = MarketUtils.getCachedTokenPrice(
             position.collateralToken(),
             market,
             prices
         );
 
-        cache.collateralUsd = position.collateralAmount() * cache.collateralTokenPrice.min;
-
-        cache.usdDeltaForPriceImpact = isIncrease ? position.sizeInUsd().toInt256() : -position.sizeInUsd().toInt256();
+        cache.collateralUsd = position.collateralAmount() * collateralTokenPrice.min;
 
         cache.priceImpactUsd = PositionPricingUtils.getPriceImpactUsd(
             PositionPricingUtils.GetPriceImpactUsdParams(
                 dataStore,
-                market,
-                cache.usdDeltaForPriceImpact,
+                market.marketToken,
+                market.indexToken,
+                market.longToken,
+                market.shortToken,
+                -position.sizeInUsd().toInt256(),
                 position.isLong()
             )
         );
@@ -341,7 +344,7 @@ library PositionUtils {
         // if the positive price impact is reduced should not be allowed to be created
         // as they would be easily liquidated if the price impact changes
         // cap the priceImpactUsd to zero to prevent these positions from being created
-        if (cache.priceImpactUsd >= 0) {
+        if (cache.priceImpactUsd > 0) {
             cache.priceImpactUsd = 0;
         } else {
             uint256 maxPriceImpactFactor = MarketUtils.getMaxPositionImpactFactorForLiquidations(
@@ -359,29 +362,17 @@ library PositionUtils {
             }
         }
 
-        PositionPricingUtils.GetPositionFeesParams memory getPositionFeesParams = PositionPricingUtils.GetPositionFeesParams(
+        PositionPricingUtils.PositionFees memory fees = PositionPricingUtils.getPositionFees(
             dataStore,
             referralStorage,
             position,
-            cache.collateralTokenPrice,
+            collateralTokenPrice,
             market.longToken,
             market.shortToken,
-            position.sizeInUsd(),
-            address(0) // uiFeeReceiver
+            position.sizeInUsd()
         );
 
-        PositionPricingUtils.PositionFees memory fees = PositionPricingUtils.getPositionFees(getPositionFeesParams);
-
-        uint256 collateralCostUsd = fees.collateralCostAmount * cache.collateralTokenPrice.min;
-
-        // the position's pnl is counted as collateral for the liquidation check
-        // as a position in profit should not be liquidated if the pnl is sufficient
-        // to cover the position's fees
-        cache.remainingCollateralUsd =
-            cache.collateralUsd.toInt256()
-            + cache.positionPnlUsd
-            + cache.priceImpactUsd
-            - collateralCostUsd.toInt256();
+        cache.remainingCollateralUsd = cache.collateralUsd.toInt256() + cache.positionPnlUsd + cache.priceImpactUsd - fees.totalNetCostUsd.toInt256();
 
         if (shouldValidateMinCollateralUsd) {
             cache.minCollateralUsd = dataStore.getUint(Keys.MIN_COLLATERAL_USD).toInt256();
@@ -394,13 +385,8 @@ library PositionUtils {
             return true;
         }
 
-        cache.minCollateralFactor = MarketUtils.getMinCollateralFactor(dataStore, market.marketToken);
-
         // validate if (remaining collateral) / position.size is less than the min collateral factor (max leverage exceeded)
-        // this validation includes the position fee to be paid when closing the position
-        // i.e. if the position does not have sufficient collateral after closing fees it is considered a liquidatable position
         cache.minCollateralUsdForLeverage = Precision.applyFactor(position.sizeInUsd(), cache.minCollateralFactor).toInt256();
-
         if (cache.remainingCollateralUsd < cache.minCollateralUsdForLeverage) {
             return true;
         }
@@ -422,25 +408,19 @@ library PositionUtils {
             prices
         );
 
-        // the min collateral factor will increase as the open interest for a market increases
-        // this may lead to previously created limit increase orders not being executable
-        //
-        // price impact could be gamed by opening high leverage positions, if the price impact
-        // that should be charged is higher than the amount of collateral in the position
-        // then a user could pay less price impact than what is required
-        //
-        // this check helps to prevent gaming of price impact
         uint256 minCollateralFactor = MarketUtils.getMinCollateralFactorForOpenInterest(
             dataStore,
-            market,
+            market.marketToken,
+            market.longToken,
+            market.shortToken,
             values.openInterestDelta,
             isLong
         );
 
         int256 remainingCollateralUsd = values.positionCollateralAmount.toInt256() * collateralTokenPrice.min.toInt256();
 
-        // deduct realized pnl if it is negative since this would be paid from
-        // the position's collateral
+        remainingCollateralUsd += values.positionPnlUsd;
+
         if (values.realizedPnlUsd < 0) {
             remainingCollateralUsd = remainingCollateralUsd + values.realizedPnlUsd;
         }
@@ -483,21 +463,16 @@ library PositionUtils {
         uint256 nextPositionBorrowingFactor
     ) internal {
         MarketUtils.updateTotalBorrowing(
-            params.contracts.dataStore, // dataStore
-            params.market.marketToken, // market
-            params.position.isLong(), // isLong
-            params.position.sizeInUsd(), // prevPositionSizeInUsd
-            params.position.borrowingFactor(), // prevPositionBorrowingFactor
-            nextPositionSizeInUsd, // nextPositionSizeInUsd
-            nextPositionBorrowingFactor // nextPositionBorrowingFactor
+            params.contracts.dataStore,
+            params.market.marketToken,
+            params.position.isLong(),
+            params.position.borrowingFactor(),
+            params.position.sizeInUsd(),
+            nextPositionSizeInUsd,
+            nextPositionBorrowingFactor
         );
     }
 
-    // the order.receiver is meant to allow the output of an order to be
-    // received by an address that is different from the position.account
-    // address
-    // for funding fees, the funds are still credited to the owner
-    // of the position indicated by order.account
     function incrementClaimableFundingAmount(
         PositionUtils.UpdatePositionParams memory params,
         PositionPricingUtils.PositionFees memory fees
@@ -509,7 +484,7 @@ library PositionUtils {
                 params.contracts.eventEmitter,
                 params.market.marketToken,
                 params.market.longToken,
-                params.order.account(),
+                params.order.receiver(),
                 fees.funding.claimableLongTokenAmount
             );
         }
@@ -520,7 +495,7 @@ library PositionUtils {
                 params.contracts.eventEmitter,
                 params.market.marketToken,
                 params.market.shortToken,
-                params.order.account(),
+                params.order.receiver(),
                 fees.funding.claimableShortTokenAmount
             );
         }
@@ -535,7 +510,8 @@ library PositionUtils {
             MarketUtils.applyDeltaToOpenInterest(
                 params.contracts.dataStore,
                 params.contracts.eventEmitter,
-                params.market,
+                params.market.marketToken,
+                params.market.indexToken,
                 params.position.collateralToken(),
                 params.position.isLong(),
                 sizeDeltaUsd
@@ -562,7 +538,18 @@ library PositionUtils {
             params.position.market(),
             params.position.collateralToken(),
             fees.referral.affiliate,
+            params.position.account(),
             fees.referral.affiliateRewardAmount
         );
+
+        if (fees.referral.traderDiscountAmount > 0) {
+            ReferralEventUtils.emitTraderReferralDiscountApplied(
+                params.contracts.eventEmitter,
+                params.position.market(),
+                params.position.collateralToken(),
+                params.position.account(),
+                fees.referral.traderDiscountAmount
+            );
+        }
     }
 }

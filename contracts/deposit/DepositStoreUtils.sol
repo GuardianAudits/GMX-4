@@ -17,7 +17,6 @@ library DepositStoreUtils {
     bytes32 public constant ACCOUNT = keccak256(abi.encode("ACCOUNT"));
     bytes32 public constant RECEIVER = keccak256(abi.encode("RECEIVER"));
     bytes32 public constant CALLBACK_CONTRACT = keccak256(abi.encode("CALLBACK_CONTRACT"));
-    bytes32 public constant UI_FEE_RECEIVER = keccak256(abi.encode("UI_FEE_RECEIVER"));
     bytes32 public constant MARKET = keccak256(abi.encode("MARKET"));
     bytes32 public constant INITIAL_LONG_TOKEN = keccak256(abi.encode("INITIAL_LONG_TOKEN"));
     bytes32 public constant INITIAL_SHORT_TOKEN = keccak256(abi.encode("INITIAL_SHORT_TOKEN"));
@@ -49,10 +48,6 @@ library DepositStoreUtils {
 
         deposit.setCallbackContract(dataStore.getAddress(
             keccak256(abi.encode(key, CALLBACK_CONTRACT))
-        ));
-
-        deposit.setUiFeeReceiver(dataStore.getAddress(
-            keccak256(abi.encode(key, UI_FEE_RECEIVER))
         ));
 
         deposit.setMarket(dataStore.getAddress(
@@ -130,11 +125,6 @@ library DepositStoreUtils {
         dataStore.setAddress(
             keccak256(abi.encode(key, CALLBACK_CONTRACT)),
             deposit.callbackContract()
-        );
-
-        dataStore.setAddress(
-            keccak256(abi.encode(key, UI_FEE_RECEIVER)),
-            deposit.uiFeeReceiver()
         );
 
         dataStore.setAddress(
@@ -219,10 +209,6 @@ library DepositStoreUtils {
 
         dataStore.removeAddress(
             keccak256(abi.encode(key, CALLBACK_CONTRACT))
-        );
-
-        dataStore.removeAddress(
-            keccak256(abi.encode(key, UI_FEE_RECEIVER))
         );
 
         dataStore.removeAddress(

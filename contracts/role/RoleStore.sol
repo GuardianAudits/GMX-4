@@ -5,7 +5,6 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "../utils/EnumerableValues.sol";
 import "./Role.sol";
-import "../error/Errors.sol";
 
 /**
  * @title RoleStore
@@ -24,9 +23,13 @@ contract RoleStore {
     // vs calling roleMembers[key].contains(account)
     mapping(address => mapping (bytes32 => bool)) roleCache;
 
+    error Unauthorized(address msgSender, string role);
+    error ThereMustBeAtLeastOneRoleAdmin();
+    error ThereMustBeAtLeastOneTimelockMultiSig();
+
     modifier onlyRoleAdmin() {
         if (!hasRole(msg.sender, Role.ROLE_ADMIN)) {
-            revert Errors.Unauthorized(msg.sender, "ROLE_ADMIN");
+            revert Unauthorized(msg.sender, "ROLE_ADMIN");
         }
         _;
     }
@@ -120,10 +123,10 @@ contract RoleStore {
 
         if (roleMembers[roleKey].length() == 0) {
             if (roleKey == Role.ROLE_ADMIN) {
-                revert Errors.ThereMustBeAtLeastOneRoleAdmin();
+                revert ThereMustBeAtLeastOneRoleAdmin();
             }
             if (roleKey == Role.TIMELOCK_MULTISIG) {
-                revert Errors.ThereMustBeAtLeastOneTimelockMultiSig();
+                revert ThereMustBeAtLeastOneTimelockMultiSig();
             }
         }
     }
