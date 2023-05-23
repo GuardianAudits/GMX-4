@@ -10,13 +10,6 @@ library Order {
     using Order for Props;
 
     enum OrderType {
-        // @dev for LimitIncrease, LimitDecrease, StopLossDecrease orders, two prices for the
-        // index token need to be recorded in the oracle
-        // the price with the smaller block number is stored as the primary price while the price with the
-        // larger block number is stored as the secondary price
-        // the triggerPrice must be validated to be between the primary price and secondary price
-        // LimitDecrease and StopLossDecrease are reduce-only orders
-
         // @dev MarketSwap: swap token A to token B at the current market price
         // the order will be cancelled if the minOutputAmount cannot be fulfilled
         MarketSwap,
@@ -36,6 +29,12 @@ library Order {
         StopLossDecrease,
         // @dev Liquidation: allows liquidation of positions if the criteria for liquidation are met
         Liquidation
+    }
+
+    // to help further differentiate orders
+    enum SecondaryOrderType {
+        None,
+        Adl
     }
 
     enum DecreasePositionSwapType {
@@ -58,7 +57,14 @@ library Order {
 
     // @param account the account of the order
     // @param receiver the receiver for any token transfers
+    // this field is meant to allow the output of an order to be
+    // received by an address that is different from the creator of the
+    // order whether this is for swaps or whether the account is the owner
+    // of a position
+    // for funding fees and claimable collateral, the funds are still
+    // credited to the owner of the position indicated by order.account
     // @param callbackContract the contract to call for callbacks
+    // @param uiFeeReceiver the ui fee receiver
     // @param market the trading market
     // @param initialCollateralToken for increase orders, initialCollateralToken
     // is the token sent in by the user, the token will be swapped through the
@@ -72,6 +78,7 @@ library Order {
         address account;
         address receiver;
         address callbackContract;
+        address uiFeeReceiver;
         address market;
         address initialCollateralToken;
         address[] swapPath;
@@ -90,6 +97,8 @@ library Order {
     // @param executionFee the execution fee for keepers
     // @param callbackGasLimit the gas limit for the callbackContract
     // @param minOutputAmount the minimum output amount for decrease orders and swaps
+    // note that for decrease orders, multiple tokens could be received, for this reason, the
+    // minOutputAmount value is treated as a USD value for validation in decrease orders
     // @param updatedAtBlock the block at which the order was last updated
     struct Numbers {
         OrderType orderType;
@@ -182,6 +191,20 @@ library Order {
     // @param value the value to set to
     function setInitialCollateralToken(Props memory props, address value) internal pure {
         props.addresses.initialCollateralToken = value;
+    }
+
+    // @dev the order uiFeeReceiver
+    // @param props Props
+    // @return the order uiFeeReceiver
+    function uiFeeReceiver(Props memory props) internal pure returns (address) {
+        return props.addresses.uiFeeReceiver;
+    }
+
+    // @dev set the order uiFeeReceiver
+    // @param props Props
+    // @param value the value to set to
+    function setUiFeeReceiver(Props memory props, address value) internal pure {
+        props.addresses.uiFeeReceiver = value;
     }
 
     // @dev the order swapPath

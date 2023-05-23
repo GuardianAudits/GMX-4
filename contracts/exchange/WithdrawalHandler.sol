@@ -3,7 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "../utils/GlobalReentrancyGuard.sol";
-import "../utils/ErrorUtils.sol";
+import "../error/ErrorUtils.sol";
 
 import "./ExchangeUtils.sol";
 import "../role/RoleModule.sol";
@@ -99,12 +99,12 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
         withOraclePrices(oracle, dataStore, eventEmitter, oracleParams)
     {
         uint256 startingGas = gasleft();
+        uint256 executionGas = GasUtils.getExecutionGas(dataStore, startingGas);
 
-        try this._executeWithdrawal(
+        try this._executeWithdrawal{ gas: executionGas }(
             key,
             oracleParams,
-            msg.sender,
-            startingGas
+            msg.sender
         ) {
         } catch (bytes memory reasonBytes) {
             _handleWithdrawalError(
@@ -127,14 +127,12 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
         globalNonReentrant
     {
 
-        uint256 startingGas = gasleft();
         OracleUtils.SetPricesParams memory oracleParams;
 
         this._executeWithdrawal(
             key,
             oracleParams,
-            msg.sender,
-            startingGas
+            msg.sender
         );
     }
 
@@ -145,9 +143,10 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
     function _executeWithdrawal(
         bytes32 key,
         OracleUtils.SetPricesParams memory oracleParams,
-        address keeper,
-        uint256 startingGas
+        address keeper
     ) external onlySelf {
+        uint256 startingGas = gasleft();
+
         FeatureUtils.validateFeature(dataStore, Keys.executeWithdrawalFeatureDisabledKey(address(this)));
 
         uint256[] memory minOracleBlockNumbers = OracleUtils.getUncompactedOracleBlockNumbers(
@@ -180,17 +179,17 @@ contract WithdrawalHandler is GlobalReentrancyGuard, RoleModule, OracleModule {
         uint256 startingGas,
         bytes memory reasonBytes
     ) internal {
-        (string memory reason, /* bool hasRevertMessage */) = ErrorUtils.getRevertMessage(reasonBytes);
-
         bytes4 errorSelector = ErrorUtils.getErrorSelectorFromData(reasonBytes);
 
         if (
-            OracleUtils.isEmptyPriceError(errorSelector) ||
-            errorSelector == FeatureUtils.DisabledFeature.selector
+            OracleUtils.isOracleError(errorSelector) ||
+            errorSelector == Errors.DisabledFeature.selector
         ) {
 
             ErrorUtils.revertWithCustomError(reasonBytes);
         }
+
+        (string memory reason, /* bool hasRevertMessage */) = ErrorUtils.getRevertMessage(reasonBytes);
 
         WithdrawalUtils.cancelWithdrawal(
             dataStore,

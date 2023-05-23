@@ -7,9 +7,13 @@ import "../data/Keys.sol";
 
 // @title FeatureUtils
 // @dev Library to validate if a feature is enabled or disabled
+// disabling a feature should only be used if it is absolutely necessary
+// disabling of features could lead to unexpected effects, e.g. increasing / decreasing of orders
+// could be disabled while liquidations may remain enabled
+// this could also occur if the chain is not producing blocks and lead to liquidatable positions
+// when block production resumes
+// the effects of disabling features should be carefully considered
 library FeatureUtils {
-    error DisabledFeature(bytes32 key);
-
     // @dev get whether a feature is disabled
     // @param dataStore DataStore
     // @param key the feature key
@@ -23,7 +27,7 @@ library FeatureUtils {
     // @param key the feature key
     function validateFeature(DataStore dataStore, bytes32 key) internal view {
         if (isFeatureDisabled(dataStore, key)) {
-            revert DisabledFeature(key);
+            revert Errors.DisabledFeature(key);
         }
     }
 }
