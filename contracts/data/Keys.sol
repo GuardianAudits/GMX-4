@@ -16,25 +16,28 @@ library Keys {
     // @dev for holding tokens that could not be sent out
     bytes32 public constant HOLDING_ADDRESS = keccak256(abi.encode("HOLDING_ADDRESS"));
 
+    // @dev key for the minimum gas that should be forwarded for execution error handling
+    bytes32 public constant MIN_HANDLE_EXECUTION_ERROR_GAS = keccak256(abi.encode("MIN_HANDLE_EXECUTION_ERROR_GAS"));
+
     // @dev for a global reentrancy guard
     bytes32 public constant REENTRANCY_GUARD_STATUS = keccak256(abi.encode("REENTRANCY_GUARD_STATUS"));
 
     // @dev key for deposit fees
-    bytes32 public constant DEPOSIT_FEE = keccak256(abi.encode("DEPOSIT_FEE"));
+    bytes32 public constant DEPOSIT_FEE_TYPE = keccak256(abi.encode("DEPOSIT_FEE_TYPE"));
     // @dev key for withdrawal fees
-    bytes32 public constant WITHDRAWAL_FEE = keccak256(abi.encode("WITHDRAWAL_FEE"));
+    bytes32 public constant WITHDRAWAL_FEE_TYPE = keccak256(abi.encode("WITHDRAWAL_FEE_TYPE"));
     // @dev key for swap fees
-    bytes32 public constant SWAP_FEE = keccak256(abi.encode("SWAP_FEE"));
+    bytes32 public constant SWAP_FEE_TYPE = keccak256(abi.encode("SWAP_FEE_TYPE"));
     // @dev key for position fees
-    bytes32 public constant POSITION_FEE = keccak256(abi.encode("POSITION_FEE"));
+    bytes32 public constant POSITION_FEE_TYPE = keccak256(abi.encode("POSITION_FEE_TYPE"));
     // @dev key for ui deposit fees
-    bytes32 public constant UI_DEPOSIT_FEE = keccak256(abi.encode("UI_DEPOSIT_FEE"));
+    bytes32 public constant UI_DEPOSIT_FEE_TYPE = keccak256(abi.encode("UI_DEPOSIT_FEE_TYPE"));
     // @dev key for ui withdrawal fees
-    bytes32 public constant UI_WITHDRAWAL_FEE = keccak256(abi.encode("UI_WITHDRAWAL_FEE"));
+    bytes32 public constant UI_WITHDRAWAL_FEE_TYPE = keccak256(abi.encode("UI_WITHDRAWAL_FEE_TYPE"));
     // @dev key for ui swap fees
-    bytes32 public constant UI_SWAP_FEE = keccak256(abi.encode("UI_SWAP_FEE"));
+    bytes32 public constant UI_SWAP_FEE_TYPE = keccak256(abi.encode("UI_SWAP_FEE_TYPE"));
     // @dev key for ui position fees
-    bytes32 public constant UI_POSITION_FEE = keccak256(abi.encode("UI_POSITION_FEE"));
+    bytes32 public constant UI_POSITION_FEE_TYPE = keccak256(abi.encode("UI_POSITION_FEE_TYPE"));
 
     // @dev key for ui fee factor
     bytes32 public constant UI_FEE_FACTOR = keccak256(abi.encode("UI_FEE_FACTOR"));
@@ -74,6 +77,7 @@ library Keys {
 
     // @dev key for the max swap path length allowed
     bytes32 public constant MAX_SWAP_PATH_LENGTH = keccak256(abi.encode("MAX_SWAP_PATH_LENGTH"));
+    // @dev key used to store markets observed in a swap path, to ensure that a swap path contains unique markets
     bytes32 public constant SWAP_PATH_MARKET_FLAG = keccak256(abi.encode("SWAP_PATH_MARKET_FLAG"));
 
     // @dev key for whether the create deposit feature is disabled
@@ -202,8 +206,6 @@ library Keys {
     bytes32 public constant COLLATERAL_SUM = keccak256(abi.encode("COLLATERAL_SUM"));
     // @dev key for pool amount
     bytes32 public constant POOL_AMOUNT = keccak256(abi.encode("POOL_AMOUNT"));
-    // @dev key for pool amount adjustment
-    bytes32 public constant POOL_AMOUNT_ADJUSTMENT = keccak256(abi.encode("POOL_AMOUNT_ADJUSTMENT"));
     // @dev key for max pool amount
     bytes32 public constant MAX_POOL_AMOUNT = keccak256(abi.encode("MAX_POOL_AMOUNT"));
     // @dev key for max open interest
@@ -748,18 +750,6 @@ library Keys {
         ));
     }
 
-    // @dev key for token adjustment amount for a market
-    // @param market the market to adjust
-    // @param token the token to adjust
-    // @return key for the token adjustment amount for a market
-    function poolAmountAdjustmentKey(address market, address token) internal pure returns (bytes32) {
-        return keccak256(abi.encode(
-            POOL_AMOUNT,
-            market,
-            token
-        ));
-    }
-
     // @dev the key for the max amount of pool tokens
     // @param market the market for the pool
     // @param token the token for the pool
@@ -910,7 +900,6 @@ library Keys {
     // @dev key for claimable funding amount
     // @param market the market to check
     // @param token the token to check
-    // @param account the account to check
     // @return key for claimable funding amount
     function claimableFundingAmountKey(address market, address token) internal pure returns (bytes32) {
         return keccak256(abi.encode(

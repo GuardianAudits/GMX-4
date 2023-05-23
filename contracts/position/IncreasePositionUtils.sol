@@ -55,7 +55,7 @@ library IncreasePositionUtils {
         uint256 collateralIncrementAmount
     ) external {
         // get the market prices for the given position
-        MarketUtils.MarketPrices memory prices = MarketUtils.getMarketPricesForPosition(
+        MarketUtils.MarketPrices memory prices = MarketUtils.getMarketPrices(
             params.contracts.oracle,
             params.market
         );
@@ -148,16 +148,6 @@ library IncreasePositionUtils {
             params.order.isLong()
         );
 
-        PositionUtils.validatePosition(
-            params.contracts.dataStore,
-            params.contracts.referralStorage,
-            params.position,
-            params.market,
-            prices,
-            true, // isIncrease
-            true // shouldValidateMinCollateralUsd
-        );
-
         if (params.order.sizeDeltaUsd() > 0) {
             PositionUtils.WillPositionCollateralBeSufficientValues memory positionValues = PositionUtils.WillPositionCollateralBeSufficientValues(
                 params.position.sizeInUsd(), // positionSizeInUsd
@@ -176,11 +166,23 @@ library IncreasePositionUtils {
             );
 
             if (!willBeSufficient) {
-                revert Errors.InsufficientCollateralForOpenInterestLeverage(remainingCollateralUsd);
+                revert Errors.InsufficientCollateralUsd(remainingCollateralUsd);
             }
         }
 
         PositionUtils.handleReferral(params, fees);
+
+        // validatePosition should be called after open interest and all other market variables
+        // have been updated
+        PositionUtils.validatePosition(
+            params.contracts.dataStore,
+            params.contracts.referralStorage,
+            params.position,
+            params.market,
+            prices,
+            true, // shouldValidateMinPositionSize
+            true // shouldValidateMinCollateralUsd
+        );
 
         PositionEventUtils.emitPositionFeesCollected(
             params.contracts.eventEmitter,
@@ -242,7 +244,7 @@ library IncreasePositionUtils {
             params.market.marketToken,
             params.position.collateralToken(),
             fees.feeReceiverAmount,
-            Keys.POSITION_FEE
+            Keys.POSITION_FEE_TYPE
         );
 
         FeeUtils.incrementClaimableUiFeeAmount(
@@ -252,7 +254,7 @@ library IncreasePositionUtils {
             params.market.marketToken,
             params.position.collateralToken(),
             fees.ui.uiFeeAmount,
-            Keys.UI_POSITION_FEE
+            Keys.UI_POSITION_FEE_TYPE
         );
 
         collateralDeltaAmount -= fees.collateralCostAmount.toInt256();
@@ -300,7 +302,7 @@ library IncreasePositionUtils {
         );
 
         uint256 executionPrice = BaseOrderUtils.getExecutionPrice(
-            params.contracts.oracle.getCustomPrice(params.market.indexToken),
+            params.contracts.oracle.getPrimaryPrice(params.market.indexToken),
             params.order.sizeDeltaUsd(),
             priceImpactUsd,
             params.order.acceptablePrice(),
@@ -309,11 +311,10 @@ library IncreasePositionUtils {
         );
 
         int256 priceImpactAmount = PositionPricingUtils.getPriceImpactAmount(
-            params.order.sizeDeltaUsd(),
-            executionPrice,
+            priceImpactUsd,
             prices.indexTokenPrice,
             params.order.isLong(),
-            true
+            true // isIncrease
         );
 
         return (executionPrice, priceImpactAmount);
