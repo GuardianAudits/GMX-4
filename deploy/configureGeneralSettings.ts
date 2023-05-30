@@ -1,14 +1,24 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import * as keys from "../utils/keys";
-import { setUintIfDifferent } from "../utils/dataStore";
+import { setAddressIfDifferent, setUintIfDifferent } from "../utils/dataStore";
 
 const func = async ({ gmx }: HardhatRuntimeEnvironment) => {
   const generalConfig = await gmx.getGeneral();
+
+  await setAddressIfDifferent(keys.FEE_RECEIVER, generalConfig.feeReceiver, "fee receiver");
+  await setAddressIfDifferent(keys.HOLDING_ADDRESS, generalConfig.holdingAddress, "holding address");
+
+  await setUintIfDifferent(
+    keys.MIN_HANDLE_EXECUTION_ERROR_GAS,
+    generalConfig.minHandleExecutionErrorGas,
+    "min handle execution error gas"
+  );
 
   await setUintIfDifferent(keys.MAX_CALLBACK_GAS_LIMIT, generalConfig.maxCallbackGasLimit, "max callback gas limit");
   await setUintIfDifferent(keys.MAX_SWAP_PATH_LENGTH, generalConfig.maxSwapPathLength, "max swap path length");
 
   await setUintIfDifferent(keys.MIN_COLLATERAL_USD, generalConfig.minCollateralUsd, "min collateral USD");
+  await setUintIfDifferent(keys.MIN_POSITION_SIZE_USD, generalConfig.minPositionSizeUsd, "min position size USD");
 
   await setUintIfDifferent(
     keys.CLAIMABLE_COLLATERAL_TIME_DIVISOR,

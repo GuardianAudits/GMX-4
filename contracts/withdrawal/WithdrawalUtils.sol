@@ -172,6 +172,8 @@ library WithdrawalUtils {
      */
     function executeWithdrawal(ExecuteWithdrawalParams memory params) external {
         Withdrawal.Props memory withdrawal = WithdrawalStoreUtils.get(params.dataStore, params.key);
+        WithdrawalStoreUtils.remove(params.dataStore, params.key, withdrawal.account());
+
         if (withdrawal.account() == address(0)) {
             revert Errors.EmptyWithdrawal();
         }
@@ -292,7 +294,7 @@ library WithdrawalUtils {
             market.marketToken,
             market.longToken,
             cache.longTokenFees.feeReceiverAmount,
-            Keys.WITHDRAWAL_FEE
+            Keys.WITHDRAWAL_FEE_TYPE
         );
 
         FeeUtils.incrementClaimableUiFeeAmount(
@@ -302,7 +304,7 @@ library WithdrawalUtils {
             market.marketToken,
             market.longToken,
             cache.longTokenFees.uiFeeAmount,
-            Keys.UI_WITHDRAWAL_FEE
+            Keys.UI_WITHDRAWAL_FEE_TYPE
         );
 
         cache.shortTokenFees = SwapPricingUtils.getSwapFees(
@@ -318,7 +320,7 @@ library WithdrawalUtils {
             market.marketToken,
             market.shortToken,
             cache.shortTokenFees.feeReceiverAmount,
-            Keys.WITHDRAWAL_FEE
+            Keys.WITHDRAWAL_FEE_TYPE
         );
 
         FeeUtils.incrementClaimableUiFeeAmount(
@@ -328,7 +330,7 @@ library WithdrawalUtils {
             market.marketToken,
             market.shortToken,
             cache.shortTokenFees.uiFeeAmount,
-            Keys.UI_WITHDRAWAL_FEE
+            Keys.UI_WITHDRAWAL_FEE_TYPE
         );
 
         // the pool will be reduced by the outputAmount minus the fees for the pool
@@ -338,6 +340,8 @@ library WithdrawalUtils {
         cache.shortTokenPoolAmountDelta = cache.shortTokenOutputAmount - cache.shortTokenFees.feeAmountForPool;
         cache.shortTokenOutputAmount = cache.shortTokenFees.amountAfterFees;
 
+        // it is rare but possible for withdrawals to be blocked because pending borrowing fees
+        // have not yet been deducted from position collateral and credited to the poolAmount value
         MarketUtils.applyDeltaToPoolAmount(
             params.dataStore,
             params.eventEmitter,
@@ -375,8 +379,6 @@ library WithdrawalUtils {
             Keys.MAX_PNL_FACTOR_FOR_WITHDRAWALS,
             Keys.MAX_PNL_FACTOR_FOR_WITHDRAWALS
         );
-
-        WithdrawalStoreUtils.remove(params.dataStore, params.key, withdrawal.account());
 
         MarketToken(payable(market.marketToken)).burn(
             address(params.withdrawalVault),
@@ -427,6 +429,9 @@ library WithdrawalUtils {
             cache.shortTokenFees
         );
 
+        // if the native token was transferred to the receiver in a swap
+        // it may be possible to invoke external contracts before the validations
+        // are called
         MarketUtils.validateMarketTokenBalance(params.dataStore, market);
     }
 

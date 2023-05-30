@@ -2,11 +2,12 @@ import { hashString, hashData } from "./hash";
 
 export const WNT = hashString("WNT");
 export const NONCE = hashString("NONCE");
-export const MAX_LEVERAGE = hashString("MAX_LEVERAGE");
-
-export const MAX_UI_FEE_FACTOR = hashString("MAX_UI_FEE_FACTOR");
 
 export const FEE_RECEIVER = hashString("FEE_RECEIVER");
+export const HOLDING_ADDRESS = hashString("HOLDING_ADDRESS");
+export const MIN_HANDLE_EXECUTION_ERROR_GAS = hashString("MIN_HANDLE_EXECUTION_ERROR_GAS");
+
+export const MAX_LEVERAGE = hashString("MAX_LEVERAGE");
 
 export const MARKET_LIST = hashString("MARKET_LIST");
 
@@ -45,7 +46,11 @@ export const MAX_ORACLE_REF_PRICE_DEVIATION_FACTOR = hashString("MAX_ORACLE_REF_
 export const MIN_ORACLE_SIGNERS = hashString("MIN_ORACLE_SIGNERS");
 
 export const MIN_COLLATERAL_FACTOR = hashString("MIN_COLLATERAL_FACTOR");
+export const MIN_COLLATERAL_FACTOR_FOR_OPEN_INTEREST_MULTIPLIER = hashString(
+  "MIN_COLLATERAL_FACTOR_FOR_OPEN_INTEREST_MULTIPLIER"
+);
 export const MIN_COLLATERAL_USD = hashString("MIN_COLLATERAL_USD");
+export const MIN_POSITION_SIZE_USD = hashString("MIN_POSITION_SIZE_USD");
 
 export const SWAP_FEE_RECEIVER_FACTOR = hashString("SWAP_FEE_RECEIVER_FACTOR");
 
@@ -75,13 +80,11 @@ export const POSITION_IMPACT_POOL_AMOUNT = hashString("POSITION_IMPACT_POOL_AMOU
 export const SWAP_IMPACT_POOL_AMOUNT = hashString("SWAP_IMPACT_POOL_AMOUNT");
 
 export const POSITION_FEE_RECEIVER_FACTOR = hashString("POSITION_FEE_RECEIVER_FACTOR");
-export const SWAP_FEE_RECEIVER_FACTOR = hashString("SWAP_FEE_RECEIVER_FACTOR");
 export const BORROWING_FEE_RECEIVER_FACTOR = hashString("BORROWING_FEE_RECEIVER_FACTOR");
 
 export const SWAP_FEE_FACTOR = hashString("SWAP_FEE_FACTOR");
 export const SWAP_IMPACT_FACTOR = hashString("SWAP_IMPACT_FACTOR");
 export const SWAP_IMPACT_EXPONENT_FACTOR = hashString("SWAP_IMPACT_EXPONENT_FACTOR");
-export const SWAP_IMPACT_POOL_AMOUNT = hashString("SWAP_IMPACT_POOL_AMOUNT");
 
 export const POSITION_IMPACT_FACTOR = hashString("POSITION_IMPACT_FACTOR");
 export const POSITION_IMPACT_EXPONENT_FACTOR = hashString("POSITION_IMPACT_EXPONENT_FACTOR");
@@ -127,6 +130,9 @@ export const CUMULATIVE_BORROWING_FACTOR_UPDATED_AT = hashString("CUMULATIVE_BOR
 
 export const VIRTUAL_TOKEN_ID = hashString("VIRTUAL_TOKEN_ID");
 export const VIRTUAL_MARKET_ID = hashString("VIRTUAL_MARKET_ID");
+
+const VIRTUAL_INVENTORY_FOR_SWAPS = hashString("VIRTUAL_INVENTORY_FOR_SWAPS");
+const VIRTUAL_INVENTORY_FOR_POSITIONS = hashString("VIRTUAL_INVENTORY_FOR_POSITIONS");
 
 export function accountDepositListKey(account) {
   return hashData(["bytes32", "address"], [ACCOUNT_DEPOSIT_LIST, account]);
@@ -225,6 +231,10 @@ export function openInterestInTokensKey(market: string, collateralToken: string,
 
 export function minCollateralFactorKey(market: string) {
   return hashData(["bytes32", "address"], [MIN_COLLATERAL_FACTOR, market]);
+}
+
+export function minCollateralFactorForOpenInterestMultiplierKey(market: string, isLong: boolean) {
+  return hashData(["bytes32", "address", "bool"], [MIN_COLLATERAL_FACTOR_FOR_OPEN_INTEREST_MULTIPLIER, market, isLong]);
 }
 
 export function reserveFactorKey(market: string, isLong: boolean) {
@@ -368,4 +378,12 @@ export function virtualTokenIdKey(token: string) {
 
 export function virtualMarketIdKey(market: string) {
   return hashData(["bytes32", "address"], [VIRTUAL_MARKET_ID, market]);
+}
+
+export function virtualInventoryForSwapsKey(virtualMarketId: string, token: string) {
+  return hashData(["bytes32", "bytes32", "address"], [VIRTUAL_INVENTORY_FOR_SWAPS, virtualMarketId, token]);
+}
+
+export function virtualInventoryForPositionsKey(virtualTokenId: string) {
+  return hashData(["bytes32", "bytes32"], [VIRTUAL_INVENTORY_FOR_POSITIONS, virtualTokenId]);
 }

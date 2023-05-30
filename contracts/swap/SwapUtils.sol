@@ -98,6 +98,10 @@ library SwapUtils {
      * part of the swap and the amount of the received token.
      */
     function swap(SwapParams memory params) external returns (address, uint256) {
+        if (params.amountIn == 0) {
+            return (params.tokenIn, params.amountIn);
+        }
+
         if (params.swapPathMarkets.length == 0) {
             if (params.amountIn < params.minOutputAmount) {
                 revert Errors.InsufficientOutputAmount(params.amountIn, params.minOutputAmount);
@@ -185,8 +189,8 @@ library SwapUtils {
         MarketUtils.validateSwapMarket(_params.market);
 
         cache.tokenOut = MarketUtils.getOppositeToken(_params.tokenIn, _params.market);
-        cache.tokenInPrice = params.oracle.getLatestPrice(_params.tokenIn);
-        cache.tokenOutPrice = params.oracle.getLatestPrice(cache.tokenOut);
+        cache.tokenInPrice = params.oracle.getPrimaryPrice(_params.tokenIn);
+        cache.tokenOutPrice = params.oracle.getPrimaryPrice(cache.tokenOut);
 
         SwapPricingUtils.SwapFees memory fees = SwapPricingUtils.getSwapFees(
             params.dataStore,
@@ -201,7 +205,7 @@ library SwapUtils {
             _params.market.marketToken,
             _params.tokenIn,
             fees.feeReceiverAmount,
-            Keys.SWAP_FEE
+            Keys.SWAP_FEE_TYPE
         );
 
         FeeUtils.incrementClaimableUiFeeAmount(
@@ -211,7 +215,7 @@ library SwapUtils {
             _params.market.marketToken,
             _params.tokenIn,
             fees.uiFeeAmount,
-            Keys.UI_SWAP_FEE
+            Keys.UI_SWAP_FEE_TYPE
         );
 
         int256 priceImpactUsd = SwapPricingUtils.getPriceImpactUsd(
@@ -265,6 +269,10 @@ library SwapUtils {
                 priceImpactUsd
             );
 
+            if (fees.amountAfterFees <= (-negativeImpactAmount).toUint256()) {
+                revert Errors.SwapPriceImpactExceedsAmountIn(fees.amountAfterFees, negativeImpactAmount);
+            }
+
             cache.amountIn = fees.amountAfterFees - (-negativeImpactAmount).toUint256();
             cache.amountOut = cache.amountIn * cache.tokenInPrice.min / cache.tokenOutPrice.max;
             cache.poolAmountOut = cache.amountOut;
@@ -299,7 +307,7 @@ library SwapUtils {
         );
 
         MarketUtils.MarketPrices memory prices = MarketUtils.MarketPrices(
-            params.oracle.getLatestPrice(_params.market.indexToken),
+            params.oracle.getPrimaryPrice(_params.market.indexToken),
             _params.tokenIn == _params.market.longToken ? cache.tokenInPrice : cache.tokenOutPrice,
             _params.tokenIn == _params.market.shortToken ? cache.tokenInPrice : cache.tokenOutPrice
         );
@@ -310,6 +318,9 @@ library SwapUtils {
             _params.tokenIn
         );
 
+        // for single token markets cache.tokenOut will always equal _params.market.longToken
+        // so only the reserve for longs will be validated
+        // swaps should be disabled for single token markets so this should not be an issue
         MarketUtils.validateReserve(
             params.dataStore,
             _params.market,
