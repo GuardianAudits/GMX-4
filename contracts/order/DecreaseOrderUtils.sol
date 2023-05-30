@@ -41,11 +41,10 @@ library DecreaseOrderUtils {
                 order,
                 params.key,
                 position,
-                positionKey
+                positionKey,
+                params.secondaryOrderType
             )
         );
-
-        OrderStoreUtils.remove(params.contracts.dataStore, params.key, order.account());
 
         // if the pnlToken and the collateralToken are different
         // and if a swap fails or no swap was requested
@@ -176,7 +175,7 @@ library DecreaseOrderUtils {
         // the user should be informed of this possibility through documentation
         // it is likely preferred that decrease orders are still executed if the trigger price
         // is reached and the acceptable price is fulfillable
-        uint256 outputTokenPrice = oracle.getLatestPrice(outputToken).min;
+        uint256 outputTokenPrice = oracle.getPrimaryPrice(outputToken).min;
         uint256 outputUsd = outputAmount * outputTokenPrice;
 
         if (outputUsd < minOutputAmount) {
@@ -192,10 +191,10 @@ library DecreaseOrderUtils {
         uint256 secondaryOutputAmount,
         uint256 minOutputAmount
     ) internal view {
-        uint256 outputTokenPrice = oracle.getLatestPrice(outputToken).min;
+        uint256 outputTokenPrice = oracle.getPrimaryPrice(outputToken).min;
         uint256 outputUsd = outputAmount * outputTokenPrice;
 
-        uint256 secondaryOutputTokenPrice = oracle.getLatestPrice(secondaryOutputToken).min;
+        uint256 secondaryOutputTokenPrice = oracle.getPrimaryPrice(secondaryOutputToken).min;
         uint256 secondaryOutputUsd = secondaryOutputAmount * secondaryOutputTokenPrice;
 
         uint256 totalOutputUsd = outputUsd + secondaryOutputUsd;

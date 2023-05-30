@@ -78,8 +78,6 @@ export async function deployFixture() {
   const positionUtils = await hre.ethers.getContract("PositionUtils");
   const swapUtils = await hre.ethers.getContract("SwapUtils");
   const referralStorage = await hre.ethers.getContract("ReferralStorage");
-  const errors = await hre.ethers.getContract("Errors");
-  const attackContract = await hre.ethers.getContract("AttackContract");
 
   const ethUsdMarketAddress = getMarketTokenAddress(
     wnt.address,
@@ -126,7 +124,7 @@ export async function deployFixture() {
   const btcUsdMarket = await reader.getMarket(dataStore.address, btcUsdMarketAddress);
 
   const solUsdMarketAddress = getMarketTokenAddress(
-    getSyntheticTokenAddress("SOL"),
+    getSyntheticTokenAddress(hre.network.config.chainId, "SOL"),
     wnt.address,
     usdc.address,
     DEFAULT_MARKET_TYPE,
@@ -208,9 +206,7 @@ export async function deployFixture() {
       ethUsdSpotOnlyMarket,
       ethUsdSingleTokenMarket,
       btcUsdMarket,
-      attackContract,
       solUsdMarket,
-      errors,
     },
     props: { oracleSalt, signerIndexes: [0, 1, 2, 3, 4, 5, 6], executionFee: "1000000000000000" },
   };

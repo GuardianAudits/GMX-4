@@ -127,10 +127,6 @@ library OrderUtils {
 
         AccountUtils.validateReceiver(order.receiver());
 
-        if (order.initialCollateralDeltaAmount() == 0 && order.sizeDeltaUsd() == 0) {
-            revert Errors.EmptyOrder();
-        }
-
         CallbackUtils.validateCallbackGasLimit(dataStore, order.callbackGasLimit());
 
         uint256 estimatedGasLimit = GasUtils.estimateExecuteOrderGasLimit(dataStore, order);
@@ -151,9 +147,11 @@ library OrderUtils {
     // @dev executes an order
     // @param params BaseOrderUtils.ExecuteOrderParams
     function executeOrder(BaseOrderUtils.ExecuteOrderParams memory params) external {
+        OrderStoreUtils.remove(params.contracts.dataStore, params.key, params.order.account());
+
         BaseOrderUtils.validateNonEmptyOrder(params.order);
 
-        BaseOrderUtils.setExactOrderPrice(
+        BaseOrderUtils.validateOrderTriggerPrice(
             params.contracts.oracle,
             params.market.indexToken,
             params.order.orderType(),
@@ -165,6 +163,9 @@ library OrderUtils {
 
         // validate that internal state changes are correct before calling
         // external callbacks
+        // if the native token was transferred to the receiver in a swap
+        // it may be possible to invoke external contracts before the validations
+        // are called
         if (params.market.marketToken != address(0)) {
             MarketUtils.validateMarketTokenBalance(params.contracts.dataStore, params.market);
         }

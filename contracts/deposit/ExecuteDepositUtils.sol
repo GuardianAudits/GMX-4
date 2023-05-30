@@ -95,6 +95,8 @@ library ExecuteDepositUtils {
     // @param params ExecuteDepositParams
     function executeDeposit(ExecuteDepositParams memory params) external {
         Deposit.Props memory deposit = DepositStoreUtils.get(params.dataStore, params.key);
+        DepositStoreUtils.remove(params.dataStore, params.key, deposit.account());
+
         ExecuteDepositCache memory cache;
 
         if (deposit.account() == address(0)) {
@@ -160,8 +162,8 @@ library ExecuteDepositUtils {
                 market.shortToken,
                 prices.longTokenPrice.midPrice(),
                 prices.shortTokenPrice.midPrice(),
-                (cache.longTokenAmount * prices.longTokenPrice.midPrice()).toInt256(),
-                (cache.shortTokenAmount * prices.shortTokenPrice.midPrice()).toInt256()
+                cache.longTokenUsd.toInt256(),
+                cache.shortTokenUsd.toInt256()
             )
         );
 
@@ -202,8 +204,6 @@ library ExecuteDepositUtils {
         if (cache.receivedMarketTokens < deposit.minMarketTokens()) {
             revert Errors.MinMarketTokens(cache.receivedMarketTokens, deposit.minMarketTokens());
         }
-
-        DepositStoreUtils.remove(params.dataStore, params.key, deposit.account());
 
         // validate that internal state changes are correct before calling
         // external callbacks
@@ -247,7 +247,7 @@ library ExecuteDepositUtils {
             _params.market.marketToken,
             _params.tokenIn,
             fees.feeReceiverAmount,
-            Keys.DEPOSIT_FEE
+            Keys.DEPOSIT_FEE_TYPE
         );
 
         FeeUtils.incrementClaimableUiFeeAmount(
@@ -257,7 +257,7 @@ library ExecuteDepositUtils {
             _params.market.marketToken,
             _params.tokenIn,
             fees.uiFeeAmount,
-            Keys.UI_DEPOSIT_FEE
+            Keys.UI_DEPOSIT_FEE_TYPE
         );
 
         SwapPricingUtils.emitSwapFeesCollected(
@@ -318,8 +318,10 @@ library ExecuteDepositUtils {
 
             // calculate the usd amount using positiveImpactAmount since it may
             // be capped by the max available amount in the impact pool
+            // use tokenOutPrice.max to get the USD value since the positiveImpactAmount
+            // was calculated using a USD value divided by tokenOutPrice.max
             mintAmount += MarketUtils.usdToMarketTokenAmount(
-                positiveImpactAmount.toUint256() * _params.tokenOutPrice.min,
+                positiveImpactAmount.toUint256() * _params.tokenOutPrice.max,
                 poolValue,
                 marketTokensSupply
             );

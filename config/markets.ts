@@ -37,6 +37,7 @@ export type BaseMarketConfig = {
 
   positiveMaxPositionImpactFactor: BigNumberish;
   negativeMaxPositionImpactFactor: BigNumberish;
+  maxPositionImpactFactorForLiquidations: BigNumberish;
 
   swapFeeFactor: BigNumberish;
   positiveSwapImpactFactor: BigNumberish;
@@ -104,16 +105,17 @@ const baseMarketConfig: BaseMarketConfig = {
   maxPnlFactorForWithdrawalsShorts: decimalToFloat(3, 1), // 30%
 
   positionFeeFactor: decimalToFloat(5, 4), // 0.05%
-  positivePositionImpactFactor: decimalToFloat(2, 7), // 0.00002 %
-  negativePositionImpactFactor: decimalToFloat(1, 7), // 0.00001 %
+  positivePositionImpactFactor: decimalToFloat(1, 7), // 0.00001 %
+  negativePositionImpactFactor: decimalToFloat(2, 7), // 0.00002 %
   positionImpactExponentFactor: decimalToFloat(2, 0), // 2
 
   positiveMaxPositionImpactFactor: decimalToFloat(2, 2), // 2%
   negativeMaxPositionImpactFactor: decimalToFloat(2, 2), // 2%
+  maxPositionImpactFactorForLiquidations: decimalToFloat(1, 2), // 1%
 
   swapFeeFactor: decimalToFloat(5, 4), // 0.05%,
-  positiveSwapImpactFactor: decimalToFloat(2, 5), // 0.002 %
-  negativeSwapImpactFactor: decimalToFloat(1, 5), // 0.001 %
+  positiveSwapImpactFactor: decimalToFloat(1, 5), // 0.001 %
+  negativeSwapImpactFactor: decimalToFloat(2, 5), // 0.002 %
   swapImpactExponentFactor: decimalToFloat(2, 0), // 2
 
   minCollateralUsd: decimalToFloat(1, 0), // 1 USD
@@ -157,13 +159,24 @@ const hardhatBaseMarketConfig: Partial<BaseMarketConfig> = {
 
   positiveMaxPositionImpactFactor: decimalToFloat(2, 2), // 2%
   negativeMaxPositionImpactFactor: decimalToFloat(2, 2), // 2%
+  maxPositionImpactFactorForLiquidations: decimalToFloat(1, 2), // 1%
 };
 
 const config: {
   [network: string]: MarketConfig[];
 } = {
   arbitrum: [],
-  arbitrumGoerli: [],
+  arbitrumGoerli: [
+    {
+      tokens: { indexToken: "WETH", longToken: "WETH", shortToken: "USDC" },
+    },
+    {
+      tokens: { indexToken: "WBTC", longToken: "WBTC", shortToken: "USDC" },
+    },
+    {
+      tokens: { indexToken: "TEST", longToken: "WETH", shortToken: "USDC" },
+    },
+  ],
   avalanche: [],
   avalancheFuji: [
     {
@@ -179,6 +192,32 @@ const config: {
     {
       tokens: { indexToken: "SOL", longToken: "WETH", shortToken: "USDC" },
       virtualMarketId: "0x04533437e2e8ae1c70c421e7a0dd36e023e0d6217198f889f9eb9c2a6727481d",
+    },
+    {
+      tokens: { longToken: "USDC", shortToken: "USDT" },
+      swapOnly: true,
+    },
+    {
+      tokens: {
+        indexToken: "TEST",
+        longToken: "WETH",
+        shortToken: "USDC",
+      },
+      positivePositionImpactFactor: decimalToFloat(25, 6), // 0.0025 %
+      negativePositionImpactFactor: decimalToFloat(5, 5), // 0.005 %
+      positionImpactExponentFactor: decimalToFloat(2, 0), // 2
+      positiveSwapImpactFactor: decimalToFloat(1, 5), // 0.001 %
+      negativeSwapImpactFactor: decimalToFloat(2, 5), // 0.002 %
+      swapImpactExponentFactor: decimalToFloat(2, 0), // 2
+    },
+    {
+      tokens: { indexToken: "DOGE", longToken: "WETH", shortToken: "DAI" },
+    },
+    {
+      tokens: { indexToken: "LINK", longToken: "WETH", shortToken: "DAI" },
+    },
+    {
+      tokens: { indexToken: "BNB", longToken: "WETH", shortToken: "DAI" },
     },
   ],
   hardhat: [

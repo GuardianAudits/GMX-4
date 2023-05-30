@@ -1,7 +1,7 @@
 import { createDeployFunction } from "../utils/deploy";
 
 const func = createDeployFunction({
-  contractName: "Errors",
+  contractName: "DecreasePositionSwapUtils",
 });
 
 export default func;

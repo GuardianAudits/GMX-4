@@ -65,12 +65,11 @@ library IncreaseOrderUtils {
                 params.order,
                 params.key,
                 position,
-                positionKey
+                positionKey,
+                params.secondaryOrderType
             ),
             collateralIncrementAmount
         );
-
-        OrderStoreUtils.remove(params.contracts.dataStore, params.key, params.order.account());
     }
 
     // @dev validate the oracle block numbers used for the prices in the oracle

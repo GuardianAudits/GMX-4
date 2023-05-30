@@ -40,8 +40,6 @@ library SwapOrderUtils {
             params.order.uiFeeReceiver(),
             params.order.shouldUnwrapNativeToken()
         ));
-
-        OrderStoreUtils.remove(params.contracts.dataStore, params.key, params.order.account());
     }
 
     // @dev validate the oracle block numbers used for the prices in the oracle
@@ -64,7 +62,7 @@ library SwapOrderUtils {
         }
 
         if (orderType == Order.OrderType.LimitSwap) {
-            if (!minOracleBlockNumbers.areGreaterThan(orderUpdatedAtBlock)) {
+            if (!minOracleBlockNumbers.areGreaterThanOrEqualTo(orderUpdatedAtBlock)) {
                 revert Errors.OracleBlockNumbersAreSmallerThanRequired(minOracleBlockNumbers, orderUpdatedAtBlock);
             }
             return;
