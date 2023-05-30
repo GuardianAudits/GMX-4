@@ -27,7 +27,7 @@ describe.only("Guardian.PoCs", () => {
     });
   });
 
-  it("HIGH: mis-aligned price impact amounts for decrease orders", async function () {
+  it("MEDIUM: mis-aligned price impact amounts for decrease orders", async function () {
     const user0Collateral = expandDecimals(100, 18);
 
     // First create a long position
