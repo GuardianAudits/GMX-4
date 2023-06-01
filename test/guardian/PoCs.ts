@@ -4,8 +4,6 @@ import { deployFixture } from "../../utils/fixture";
 import { expandDecimals, decimalToFloat } from "../../utils/math";
 import { handleDeposit } from "../../utils/deposit";
 import { OrderType, handleOrder } from "../../utils/order";
-import { getIsAdlEnabled, updateAdlState, executeAdl } from "../../utils/adl";
-import { grantRole } from "../../utils/role";
 import * as keys from "../../utils/keys";
 
 describe.only("Guardian.PoCs", () => {
@@ -126,5 +124,83 @@ describe.only("Guardian.PoCs", () => {
 
     // .1999 Ether != .2 Ether and so the accounting for the position impact pool is slightly out of line
     // with the impact experienced by traders.
+  });
+
+  it("HIGH: AdjustedPnL set to 0 causes capped price impact to not be claimable", async () => {
+    const user0Collateral = expandDecimals(100 * 5000, 6);
+
+    // Create a long position
+    await handleOrder(fixture, {
+      create: {
+        market: ethUsdMarket,
+        account: user0,
+        initialCollateralToken: usdc,
+        initialCollateralDeltaAmount: user0Collateral,
+        sizeDeltaUsd: decimalToFloat(2000 * 1000),
+        acceptablePrice: expandDecimals(5001, 12),
+        orderType: OrderType.MarketIncrease,
+        isLong: true,
+      },
+    });
+
+    // Create a short position of the same size
+    await handleOrder(fixture, {
+      create: {
+        market: ethUsdMarket,
+        account: user1,
+        initialCollateralToken: usdc,
+        initialCollateralDeltaAmount: user0Collateral,
+        sizeDeltaUsd: decimalToFloat(2000 * 1000),
+        acceptablePrice: expandDecimals(4999, 12),
+        orderType: OrderType.MarketIncrease,
+        isLong: false,
+      },
+    });
+
+    // User0 closes their position and experiences significant PI that is capped.
+    await dataStore.setUint(keys.positionImpactFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(1, 7));
+    await dataStore.setUint(keys.positionImpactExponentFactorKey(ethUsdMarket.marketToken), decimalToFloat(2, 0));
+
+    // Set PI Cap
+    await dataStore.setUint(keys.maxPositionImpactFactorKey(ethUsdMarket.marketToken, false), decimalToFloat(0));
+
+    // Set timekey divisor such that all will go to a single timekey
+    await dataStore.setUint(keys.CLAIMABLE_COLLATERAL_TIME_DIVISOR, decimalToFloat(1));
+
+    let claimableCollateral = await dataStore.getUint(
+      keys.getClaimableCollateralAmountKey(ethUsdMarket.marketToken, wnt.address, 0, user0.address)
+    );
+
+    expect(claimableCollateral).to.eq(0);
+
+    await handleOrder(fixture, {
+      create: {
+        market: ethUsdMarket,
+        account: user0,
+        initialCollateralToken: usdc,
+        initialCollateralDeltaAmount: 0,
+        sizeDeltaUsd: decimalToFloat(2000 * 1000),
+        acceptablePrice: expandDecimals(4000, 12),
+        orderType: OrderType.MarketDecrease,
+        isLong: true,
+      },
+      execute: {
+        tokens: [wnt.address, usdc.address],
+        precisions: [8, 18],
+        minPrices: [expandDecimals(5100, 4), expandDecimals(1, 6)],
+        maxPrices: [expandDecimals(5100, 4), expandDecimals(1, 6)],
+      },
+    });
+
+    // PI was capped and the pnl was reduced to 0, but there is no claimable collateral amount
+    // Therefore the user completely lost out from the priceImpactDiffUsd, rather than having the
+    // potential to claim that pnl amount back in the future
+
+    // Claimable collateral would have gone to timeKey 0, but none is there
+    claimableCollateral = await dataStore.getUint(
+      keys.getClaimableCollateralAmountKey(ethUsdMarket.marketToken, wnt.address, 0, user0.address)
+    );
+
+    expect(claimableCollateral).to.eq(0);
   });
 });

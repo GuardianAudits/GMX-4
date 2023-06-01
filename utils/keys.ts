@@ -5,6 +5,8 @@ export const NONCE = hashString("NONCE");
 
 export const FEE_RECEIVER = hashString("FEE_RECEIVER");
 export const HOLDING_ADDRESS = hashString("HOLDING_ADDRESS");
+
+export const CLAIMABLE_COLLATERAL_AMOUNT = hashString("CLAIMABLE_COLLATERAL_AMOUNT");
 export const MIN_HANDLE_EXECUTION_ERROR_GAS = hashString("MIN_HANDLE_EXECUTION_ERROR_GAS");
 
 export const MAX_LEVERAGE = hashString("MAX_LEVERAGE");
@@ -386,4 +388,11 @@ export function virtualInventoryForSwapsKey(virtualMarketId: string, token: stri
 
 export function virtualInventoryForPositionsKey(virtualTokenId: string) {
   return hashData(["bytes32", "bytes32"], [VIRTUAL_INVENTORY_FOR_POSITIONS, virtualTokenId]);
+}
+
+export function getClaimableCollateralAmountKey(market: string, token: string, timeKey: number, account: string) {
+  return hashData(
+    ["bytes32", "address", "address", "uint256", "address"],
+    [CLAIMABLE_COLLATERAL_AMOUNT, market, token, timeKey, account]
+  );
 }
