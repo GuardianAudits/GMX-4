@@ -4,10 +4,7 @@ import { deployFixture } from "../../utils/fixture";
 import { expandDecimals, decimalToFloat } from "../../utils/math";
 import { handleDeposit } from "../../utils/deposit";
 import { OrderType, handleOrder } from "../../utils/order";
-import { getIsAdlEnabled, updateAdlState, executeAdl } from "../../utils/adl";
-import { grantRole } from "../../utils/role";
 import * as keys from "../../utils/keys";
-import { getClaimableCollateralAmountKey } from "../../utils/keys";
 
 describe.only("Guardian.PoCs", () => {
   let fixture;
