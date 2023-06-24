@@ -232,6 +232,19 @@ library MarketUtils {
         revert Errors.UnableToGetCachedTokenPrice(token, market.marketToken);
     }
 
+    // @dev return the latest prices for the market tokens
+    // the secondary price for market.indexToken is overwritten for certain order
+    // types, use this value instead of the primary price for positions
+    // @param oracle Oracle
+    // @param market the market values
+    function getMarketPricesForPosition(Oracle oracle, Market.Props memory market) internal view returns (MarketPrices memory) {
+        return MarketPrices(
+            oracle.getLatestPrice(market.indexToken),
+            oracle.getLatestPrice(market.longToken),
+            oracle.getLatestPrice(market.shortToken)
+        );
+    }
+
     // @dev return the primary prices for the market tokens
     // @param oracle Oracle
     // @param market the market values
@@ -317,20 +330,13 @@ library MarketUtils {
 
         // !maximize should be used for net pnl as a larger pnl leads to a smaller pool value
         // and a smaller pnl leads to a larger pool value
-        //
-        // while positions will always be closed at the less favourable price
-        // using the inverse of maximize for the getPnl calls would help prevent
-        // gaming of market token values by increasing the spread
-        //
-        // liquidations could be triggerred by manipulating a large spread but
-        // that should be more difficult to execute
 
         result.longPnl = getPnl(
             dataStore,
             market,
             indexTokenPrice,
-            true, // isLong
-            !maximize // maximize
+            true,
+            !maximize
         );
 
         result.longPnl = getCappedPnl(
@@ -346,8 +352,8 @@ library MarketUtils {
             dataStore,
             market,
             indexTokenPrice,
-            false, // isLong
-            !maximize // maximize
+            false,
+            !maximize
         );
 
         result.shortPnl = getCappedPnl(
@@ -363,7 +369,6 @@ library MarketUtils {
         result.poolValue = result.poolValue - result.netPnl;
 
         result.impactPoolAmount = getPositionImpactPoolAmount(dataStore, market.marketToken);
-        // use !maximize for pickPrice since the impactPoolUsd is deducted from the poolValue
         uint256 impactPoolUsd = result.impactPoolAmount * indexTokenPrice.pickPrice(maximize);
 
         result.poolValue -= impactPoolUsd.toInt256();
@@ -1295,34 +1300,6 @@ library MarketUtils {
         Price.Props memory tokenPrice,
         int256 priceImpactUsd
     ) internal returns (int256) {
-        int256 impactAmount = getSwapImpactAmountWithCap(
-            dataStore,
-            market,
-            token,
-            tokenPrice,
-            priceImpactUsd
-        );
-
-        // if there is a positive impact, the impact pool amount should be reduced
-        // if there is a negative impact, the impact pool amount should be increased
-        applyDeltaToSwapImpactPool(
-            dataStore,
-            eventEmitter,
-            market,
-            token,
-            -impactAmount
-        );
-
-        return impactAmount;
-    }
-
-    function getSwapImpactAmountWithCap(
-        DataStore dataStore,
-        address market,
-        address token,
-        Price.Props memory tokenPrice,
-        int256 priceImpactUsd
-    ) internal view returns (int256) {
         // positive impact: minimize impactAmount, use tokenPrice.max
         // negative impact: maximize impactAmount, use tokenPrice.min
         uint256 price = priceImpactUsd > 0 ? tokenPrice.max : tokenPrice.min;
@@ -1341,6 +1318,16 @@ library MarketUtils {
             // round negative impactAmount up, this will be deducted from the user
             impactAmount = Calc.roundUpMagnitudeDivision(priceImpactUsd, price);
         }
+
+        // if there is a positive impact, the impact pool amount should be reduced
+        // if there is a negative impact, the impact pool amount should be increased
+        applyDeltaToSwapImpactPool(
+            dataStore,
+            eventEmitter,
+            market,
+            token,
+            -impactAmount
+        );
 
         return impactAmount;
     }
@@ -1952,8 +1939,9 @@ library MarketUtils {
         uint256 nextPositionBorrowingFactor
     ) internal view returns (uint256) {
         uint256 totalBorrowing = getTotalBorrowing(dataStore, market, isLong);
-        totalBorrowing -= Precision.applyFactor(prevPositionSizeInUsd, prevPositionBorrowingFactor);
-        totalBorrowing += Precision.applyFactor(nextPositionSizeInUsd, nextPositionBorrowingFactor);
+        // divide by Precision.FLOAT_PRECISION to reduce the risk of overflow
+        totalBorrowing -= prevPositionSizeInUsd * prevPositionBorrowingFactor / Precision.FLOAT_PRECISION;
+        totalBorrowing += nextPositionSizeInUsd * nextPositionBorrowingFactor / Precision.FLOAT_PRECISION;
 
         return totalBorrowing;
     }

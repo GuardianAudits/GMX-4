@@ -84,7 +84,7 @@ library BaseOrderUtils {
     // @param market market values of the trading market
     // @param keeper the keeper sending the transaction
     // @param startingGas the starting gas
-    // @param secondaryOrderType the secondary order type
+    // @param positionKey the key of the order's position
     struct ExecuteOrderParams {
         ExecuteOrderParamsContracts contracts;
         bytes32 key;
@@ -95,7 +95,7 @@ library BaseOrderUtils {
         Market.Props market;
         address keeper;
         uint256 startingGas;
-        Order.SecondaryOrderType secondaryOrderType;
+        bytes32 positionKey;
     }
 
     // @param dataStore DataStore
@@ -117,10 +117,10 @@ library BaseOrderUtils {
     // @param orderType the order type
     // @return whether an orderType is a market order
     function isMarketOrder(Order.OrderType orderType) internal pure returns (bool) {
-        // a liquidation order is not considered as a market order
         return orderType == Order.OrderType.MarketSwap ||
                orderType == Order.OrderType.MarketIncrease ||
-               orderType == Order.OrderType.MarketDecrease;
+               orderType == Order.OrderType.MarketDecrease ||
+               orderType == Order.OrderType.Liquidation;
     }
 
     // @dev check if an orderType is a limit order
@@ -172,97 +172,129 @@ library BaseOrderUtils {
         return orderType == Order.OrderType.Liquidation;
     }
 
-    // @dev validate the price for increase / decrease orders based on the triggerPrice
-    // the acceptablePrice for increase / decrease orders is validated in getExecutionPrice
+    // @dev set the price for increase / decrease position orders
     //
-    // it is possible to update the oracle to support a primaryPrice and a secondaryPrice
-    // which would allow for stop-loss orders to be executed at exactly the triggerPrice
+    // for market orders, set the min and max values of the customPrice for the indexToken
+    // to either primaryPrice.min or primaryPrice.max depending on whether the order
+    // is an increase or decrease and whether it is for a long or short
     //
-    // however, this may lead to gaming issues, an example:
-    // - the current price is $2020
-    // - a user has a long position and creates a stop-loss decrease order for < $2010
-    // - if the order has a swap from ETH to USDC and the user is able to cause the order
-    // to be frozen / unexecutable by manipulating state or otherwise
-    // - then if price decreases to $2000, and the user is able to manipulate state such that
-    // the order becomes executable with $2010 being used as the price instead
-    // - then the user would be able to perform the swap at a higher price than should possible
+    // customPrice.min and customPrice.max will be equal in this case
+    // this is because in getExecutionPrice the function will try to use the closest price which can fulfill
+    // the order, if customPrice.min is set to primaryPrice.min and customPrice.max is set to primaryPrice.max
+    // getExecutionPrice will pick a better price than what should be possible
     //
-    // additionally, using the exact order's triggerPrice could lead to gaming issues during times
-    // of volatility due to users setting tight stop-losses to minimize loss while betting on a
-    // directional price movement, fees and price impact should help a bit with this, but there
-    // still may be some probability of success
+    // for limit orders, the the min and max value will be set to the triggerPrice
+    // and primaryPrice value, this represents the price that the user desired the order
+    // to be fulfilled at and the best oracle price that the order can be fulfilled at
     //
-    // the order keepers can use the closest oracle price to the triggerPrice for execution, which
-    // should lead to similar order execution prices with reduced gaming risks
+    // for stop-loss orders, the min and max value will be set to the triggerPrice value
+    // the primaryPrice and secondaryPrice are not used because the primaryPrice is a stale
+    // value and cannot be used as it would result in executing at a better price than what
+    // should be possible, the secondaryPrice is a worse price than the triggerPrice, so
+    // it should not need to be considered
     //
-    // if an order is frozen, the frozen order keepers should use the most recent price for order
-    // execution instead
+    // getExecutionPrice handles the logic for selecting the execution price to use
     //
     // @param oracle Oracle
     // @param indexToken the index token
     // @param orderType the order type
     // @param triggerPrice the order's triggerPrice
     // @param isLong whether the order is for a long or short
-    function validateOrderTriggerPrice(
+    function setExactOrderPrice(
         Oracle oracle,
         address indexToken,
         Order.OrderType orderType,
         uint256 triggerPrice,
         bool isLong
-    ) internal view {
-        if (
-            isSwapOrder(orderType) ||
-            isMarketOrder(orderType) ||
-            isLiquidationOrder(orderType)
+    ) internal {
+        if (isSwapOrder(orderType)) {
+            return;
+        }
+
+        bool isIncrease = isIncreaseOrder(orderType);
+        // increase order:
+        //     - long: use the larger price
+        //     - short: use the smaller price
+        // decrease order:
+        //     - long: use the smaller price
+        //     - short: use the larger price
+        bool shouldUseMaxPrice = isIncrease ? isLong : !isLong;
+
+        if (orderType == Order.OrderType.MarketIncrease ||
+            orderType == Order.OrderType.MarketDecrease ||
+            orderType == Order.OrderType.Liquidation) {
+
+            Price.Props memory price = oracle.getPrimaryPrice(indexToken);
+
+            oracle.setCustomPrice(indexToken, Price.Props(
+                price.pickPrice(shouldUseMaxPrice),
+                price.pickPrice(shouldUseMaxPrice)
+            ));
+
+            return;
+        }
+
+        if (orderType == Order.OrderType.LimitIncrease ||
+            orderType == Order.OrderType.LimitDecrease
         ) {
-            return;
-        }
+            uint256 primaryPrice = oracle.getPrimaryPrice(indexToken).pickPrice(shouldUseMaxPrice);
 
-        Price.Props memory primaryPrice = oracle.getPrimaryPrice(indexToken);
+            // for limit increase orders:
+            //      - long: validate primaryPrice < triggerPrice
+            //      - short: validate primaryPrice > triggerPrice
+            // for limit decrease orders:
+            //      - long: validate primaryPrice > triggerPrice
+            //      - short: validate primaryPrice < triggerPrice
+            bool shouldValidateSmallerPrimaryPrice = shouldUseMaxPrice;
 
-        // for limit increase long positions:
-        //      - the order should be executed when the oracle price is <= triggerPrice
-        //      - primaryPrice.max should be used for the oracle price
-        // for limit increase short positions:
-        //      - the order should be executed when the oracle price is >= triggerPrice
-        //      - primaryPrice.min should be used for the oracle price
-        if (orderType == Order.OrderType.LimitIncrease) {
-            bool ok = isLong ? primaryPrice.max <= triggerPrice : primaryPrice.min >= triggerPrice;
+            bool ok = shouldValidateSmallerPrimaryPrice ? primaryPrice <= triggerPrice : primaryPrice >= triggerPrice;
 
             if (!ok) {
-                revert Errors.InvalidOrderPrices(primaryPrice.min, primaryPrice.max, triggerPrice, uint256(orderType));
+                revert Errors.InvalidLimitOrderPrices(primaryPrice, triggerPrice, shouldValidateSmallerPrimaryPrice);
+            }
+
+            if (shouldValidateSmallerPrimaryPrice) {
+                oracle.setCustomPrice(indexToken, Price.Props(
+                    primaryPrice, // min price that order can be executed with
+                    triggerPrice // max price that order can be executed with
+                ));
+            } else {
+                oracle.setCustomPrice(indexToken, Price.Props(
+                    triggerPrice, // min price that order can be executed with
+                    primaryPrice // max price that order can be executed with
+                ));
             }
 
             return;
         }
 
-        // for limit decrease long positions:
-        //      - the order should be executed when the oracle price is >= triggerPrice
-        //      - primaryPrice.min should be used for the oracle price
-        // for limit decrease short positions:
-        //      - the order should be executed when the oracle price is <= triggerPrice
-        //      - primaryPrice.max should be used for the oracle price
-        if (orderType == Order.OrderType.LimitDecrease) {
-            bool ok = isLong ? primaryPrice.min >= triggerPrice : primaryPrice.max <= triggerPrice;
-
-            if (!ok) {
-                revert Errors.InvalidOrderPrices(primaryPrice.min, primaryPrice.max, triggerPrice, uint256(orderType));
-            }
-
-            return;
-        }
-
-        // for stop-loss decrease long positions:
-        //      - the order should be executed when the oracle price is <= triggerPrice
-        //      - primaryPrice.min should be used for the oracle price
-        // for stop-loss decrease short positions:
-        //      - the order should be executed when the oracle price is >= triggerPrice
-        //      - primaryPrice.max should be used for the oracle price
         if (orderType == Order.OrderType.StopLossDecrease) {
-            bool ok = isLong ? primaryPrice.min <= triggerPrice : primaryPrice.max >= triggerPrice;
+            uint256 primaryPrice = oracle.getPrimaryPrice(indexToken).pickPrice(shouldUseMaxPrice);
+            uint256 secondaryPrice = oracle.getSecondaryPrice(indexToken).pickPrice(shouldUseMaxPrice);
+
+            // for stop-loss decrease orders:
+            //     - long: validate descending price
+            //     - short: validate ascending price
+            bool shouldValidateAscendingPrice = !isLong;
+
+            bool ok = shouldValidateAscendingPrice ?
+                (primaryPrice <= triggerPrice && triggerPrice <= secondaryPrice) :
+                (primaryPrice >= triggerPrice && triggerPrice >= secondaryPrice);
 
             if (!ok) {
-                revert Errors.InvalidOrderPrices(primaryPrice.min, primaryPrice.max, triggerPrice, uint256(orderType));
+                revert Errors.InvalidStopLossOrderPrices(primaryPrice, secondaryPrice, triggerPrice, shouldValidateAscendingPrice);
+            }
+
+            if (shouldValidateAscendingPrice) {
+                oracle.setCustomPrice(indexToken, Price.Props(
+                    triggerPrice, // min price that order can be executed with
+                    triggerPrice // max price that order can be executed with
+                ));
+            } else {
+                oracle.setCustomPrice(indexToken, Price.Props(
+                    triggerPrice, // min price that order can be executed with
+                    triggerPrice // max price that order can be executed with
+                ));
             }
 
             return;
@@ -271,9 +303,18 @@ library BaseOrderUtils {
         revert Errors.UnsupportedOrderType();
     }
 
-    // @dev get the execution price for an order after factoring in price impact
+    // @dev get the execution price for an order
     //
-    // @param primaryPrice the primary price of the index token
+    // see setExactOrderPrice for information on the customPrice values
+    //
+    // for limit / stop-loss orders, the triggerPrice is returned here if it can
+    // fulfill the acceptablePrice after factoring in price impact
+    //
+    // if the triggerPrice cannot fulfill the acceptablePrice, check if the acceptablePrice
+    // can be fulfilled using the best oracle price after factoring in price impact
+    // if it can be fulfilled, fulfill the order at the acceptablePrice
+    //
+    // @param customIndexTokenPrice the custom price of the index token
     // @param sizeDeltaUsd the order.sizeDeltaUsd
     // @param priceImpactUsd the price impact of the order
     // @param acceptablePrice the order.acceptablePrice
@@ -281,7 +322,7 @@ library BaseOrderUtils {
     // @param isIncrease whether this is for an increase or decrease order
     // @return the execution price
     function getExecutionPrice(
-        Price.Props memory primaryPrice,
+        Price.Props memory customIndexTokenPrice,
         uint256 sizeDeltaUsd,
         int256 priceImpactUsd,
         uint256 acceptablePrice,
@@ -295,7 +336,6 @@ library BaseOrderUtils {
         //     - long: use the smaller price
         //     - short: use the larger price
         bool shouldUseMaxPrice = isIncrease ? isLong : !isLong;
-        uint256 price = primaryPrice.pickPrice(shouldUseMaxPrice);
 
         // should price be smaller than acceptablePrice
         // increase order:
@@ -306,39 +346,19 @@ library BaseOrderUtils {
         //     - short: price should be smaller than acceptablePrice
         bool shouldPriceBeSmaller = isIncrease ? isLong : !isLong;
 
-        // using opening of long positions as an example
-        // pnl is calculated as: position.sizeInTokens * price - position.sizeInUsd
-        // priceImpactUsd should adjust the execution price such that:
-        // position.sizeInTokens * price - position.sizeInUsd = pnl = priceImpactUsd
-        // position.sizeInUsd = sizeDeltaUsd
-        // position.sizeInTokens = sizeDeltaUsd / executionPrice
-        // sizeDeltaUsd / executionPrice * price - sizeDeltaUsd = priceImpactUsd
-        // sizeDeltaUsd / executionPrice * price = sizeDeltaUsd + priceImpactUsd
-        // sizeDeltaUsd / executionPrice = (sizeDeltaUsd + priceImpactUsd) / price
-        // executionPrice / sizeDeltaUsd = price / (sizeDeltaUsd + priceImpactUsd)
-        // executionPrice = price * sizeDeltaUsd / (sizeDeltaUsd + priceImpactUsd)
-        //
-        // e.g. if price is $2000, sizeDeltaUsd is $5000, priceImpactUsd is -$1000
-        // executionPrice = 2000 * 5000 / (5000 - 1000) = 2500
-        //
-        // checking pnl: (5000 / 2500) * 2000 - 5000 = -1000
+        // for market orders, customIndexTokenPrice.min and customIndexTokenPrice.max should
+        // be equal, see setExactOrderPrice for more info
+        // for limit orders, customIndexTokenPrice contains the triggerPrice and the best oracle
+        // price, we first attempt to fulfill the order using the triggerPrice
+        uint256 price = customIndexTokenPrice.pickPrice(shouldUseMaxPrice);
 
-        // a positive priceImpactUsdForPriceAdjustment would decrease the executionPrice
-        // a negative priceImpactUsdForPriceAdjustment would increase the executionPrice
-
-        // increase long order:
-        //      - if price impact is positive, priceImpactUsdForPriceAdjustment should be positive, to decrease the executionPrice
-        //      - if price impact is negative, priceImpactUsdForPriceAdjustment should be negative, to increase the executionPrice
-        // increase short order:
-        //      - if price impact is positive, priceImpactUsdForPriceAdjustment should be negative, to increase the executionPrice
-        //      - if price impact is negative, priceImpactUsdForPriceAdjustment should be positive, to decrease the executionPrice
-        // decrease long order:
-        //      - if price impact is positive, priceImpactUsdForPriceAdjustment should be negative, to increase the executionPrice
-        //      - if price impact is negative, priceImpactUsdForPriceAdjustment should be positive, to decrease the executionPrice
-        // decrease short order:
-        //      - if price impact is positive, priceImpactUsdForPriceAdjustment should be positive, to decrease the executionPrice
-        //      - if price impact is negative, priceImpactUsdForPriceAdjustment should be negative, to increase the executionPrice
-        bool shouldFlipPriceImpactUsd = isIncrease ? !isLong : isLong;
+        // increase order:
+        //     - long: lower price for positive impact, higher price for negative impact
+        //     - short: higher price for positive impact, lower price for negative impact
+        // decrease order:
+        //     - long: higher price for positive impact, lower price for negative impact
+        //     - short: lower price for positive impact, higher price for negative impact
+        bool shouldFlipPriceImpactUsd = isIncrease ? isLong : !isLong;
         int256 priceImpactUsdForPriceAdjustment = shouldFlipPriceImpactUsd ? -priceImpactUsd : priceImpactUsd;
 
         if (priceImpactUsdForPriceAdjustment < 0 && (-priceImpactUsdForPriceAdjustment).toUint256() > sizeDeltaUsd) {
@@ -347,17 +367,35 @@ library BaseOrderUtils {
 
         // adjust price by price impact
         if (sizeDeltaUsd > 0) {
-            price = price * sizeDeltaUsd / Calc.sumReturnUint256(sizeDeltaUsd, priceImpactUsdForPriceAdjustment);
+            price = price * Calc.sumReturnUint256(sizeDeltaUsd, priceImpactUsdForPriceAdjustment) / sizeDeltaUsd;
         }
 
-        if (
-            (shouldPriceBeSmaller && price <= acceptablePrice)  ||
-            (!shouldPriceBeSmaller && price >= acceptablePrice)
-        ) {
+        if (shouldPriceBeSmaller && price <= acceptablePrice) {
             return price;
         }
 
-        // the validateOrderPrice function should have validated if the price fulfills
+        if (!shouldPriceBeSmaller && price >= acceptablePrice) {
+            return price;
+        }
+
+        // if the order could not be fulfilled using the triggerPrice
+        // check if the best oracle price can fulfill the order
+        price = customIndexTokenPrice.pickPrice(!shouldUseMaxPrice);
+
+        // adjust price by price impact
+        if (sizeDeltaUsd > 0) {
+            price = price * Calc.sumReturnUint256(sizeDeltaUsd, priceImpactUsdForPriceAdjustment) / sizeDeltaUsd;
+        }
+
+        if (shouldPriceBeSmaller && price <= acceptablePrice) {
+            return acceptablePrice;
+        }
+
+        if (!shouldPriceBeSmaller && price >= acceptablePrice) {
+            return acceptablePrice;
+        }
+
+        // the setExactOrderPrice function should have validated if the price fulfills
         // the order's trigger price
         //
         // for decrease orders, the price impact should already be capped, so if the user
@@ -377,9 +415,6 @@ library BaseOrderUtils {
         // their position, this gives the user the option to cancel the pending order if
         // prices do not move in their favour or to close their position and let the order
         // execute if prices move in their favour
-        //
-        // it may also be possible for users to prevent the execution of orders from other users
-        // by manipulating the price impact, though this should be costly
         revert Errors.OrderNotFulfillableDueToPriceImpact(price, acceptablePrice);
     }
 

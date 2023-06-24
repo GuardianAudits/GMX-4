@@ -57,13 +57,7 @@ contract LiquidationHandler is BaseOrderHandler {
             isLong
         );
 
-        BaseOrderUtils.ExecuteOrderParams memory params = _getExecuteOrderParams(
-            key,
-            oracleParams,
-            msg.sender,
-            startingGas,
-            Order.SecondaryOrderType.None
-        );
+        BaseOrderUtils.ExecuteOrderParams memory params = _getExecuteOrderParams(key, oracleParams, msg.sender, startingGas);
 
         FeatureUtils.validateFeature(params.contracts.dataStore, Keys.executeOrderFeatureDisabledKey(address(this), uint256(params.order.orderType())));
 

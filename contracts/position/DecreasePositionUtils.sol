@@ -65,7 +65,7 @@ library DecreasePositionUtils {
     ) external returns (DecreasePositionResult memory) {
         PositionUtils.DecreasePositionCache memory cache;
 
-        cache.prices = MarketUtils.getMarketPrices(
+        cache.prices = MarketUtils.getMarketPricesForPosition(
             params.contracts.oracle,
             params.market
         );
@@ -126,7 +126,7 @@ library DecreasePositionUtils {
             // to increase the leverage of the position
             if (!willBeSufficient) {
                 if (params.order.sizeDeltaUsd() == 0) {
-                    revert Errors.UnableToWithdrawCollateral(estimatedRemainingCollateralUsd);
+                    revert Errors.UnableToWithdrawCollateralDueToLeverage(estimatedRemainingCollateralUsd);
                 }
 
                 OrderEventUtils.emitOrderCollateralDeltaAmountAutoUpdated(
@@ -196,16 +196,14 @@ library DecreasePositionUtils {
 
         PositionUtils.updateFundingAndBorrowingState(params, cache.prices);
 
-        (bool isLiquidatable, /* string memory reason */) = PositionUtils.isPositionLiquidatable(
+        if (BaseOrderUtils.isLiquidationOrder(params.order.orderType()) && !PositionUtils.isPositionLiquidatable(
             params.contracts.dataStore,
             params.contracts.referralStorage,
             params.position,
             params.market,
             cache.prices,
             true // shouldValidateMinCollateralUsd
-        );
-
-        if (BaseOrderUtils.isLiquidationOrder(params.order.orderType()) && !isLiquidatable) {
+        )) {
             revert Errors.PositionShouldNotBeLiquidated();
         }
 
@@ -229,7 +227,7 @@ library DecreasePositionUtils {
 
         params.position.setSizeInUsd(cache.nextPositionSizeInUsd);
         params.position.setSizeInTokens(params.position.sizeInTokens() - values.sizeDeltaInTokens);
-        params.position.setCollateralAmount(values.remainingCollateralAmount);
+        params.position.setCollateralAmount(values.remainingCollateralAmount.toUint256());
         params.position.setDecreasedAtBlock(Chain.currentBlockNumber());
 
         PositionUtils.incrementClaimableFundingAmount(params, fees);
@@ -327,7 +325,7 @@ library DecreasePositionUtils {
             values
         );
 
-        values = DecreasePositionSwapUtils.swapWithdrawnCollateralToPnlToken(params, values);
+        values = DecreasePositionCollateralUtils.swapWithdrawnCollateralToPnlToken(params, values);
 
         return DecreasePositionResult(
             values.output.outputToken,

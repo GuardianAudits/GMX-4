@@ -85,7 +85,15 @@ contract Oracle is RoleModule {
     // this is used in clearAllPrices to help ensure that all token prices
     // set in setPrices are cleared after use
     EnumerableSet.AddressSet internal tokensWithPrices;
+    // prices for the same token can be sent multiple times in one txn
+    // the prices can be for different block numbers
+    // the first occurrence of the token's price will be stored in primaryPrices
+    // the second occurrence will be stored in secondaryPrices
     mapping(address => Price.Props) public primaryPrices;
+    mapping(address => Price.Props) public secondaryPrices;
+    // customPrices can be used to store custom price values
+    // these prices will be cleared in clearAllPrices
+    mapping(address => Price.Props) public customPrices;
 
     constructor(
         RoleStore _roleStore,
@@ -245,12 +253,28 @@ contract Oracle is RoleModule {
         primaryPrices[token] = price;
     }
 
+    // @dev set the secondary price
+    // @param token the token to set the price for
+    // @param price the price value to set to
+    function setSecondaryPrice(address token, Price.Props memory price) external onlyController {
+        secondaryPrices[token] = price;
+    }
+
+    // @dev set a custom price
+    // @param token the token to set the price for
+    // @param price the price value to set to
+    function setCustomPrice(address token, Price.Props memory price) external onlyController {
+        customPrices[token] = price;
+    }
+
     // @dev clear all prices
     function clearAllPrices() external onlyController {
         uint256 length = tokensWithPrices.length();
         for (uint256 i; i < length; i++) {
             address token = tokensWithPrices.at(0);
             delete primaryPrices[token];
+            delete secondaryPrices[token];
+            delete customPrices[token];
             tokensWithPrices.remove(token);
         }
     }
@@ -280,6 +304,59 @@ contract Oracle is RoleModule {
             revert Errors.EmptyPrimaryPrice(token);
         }
 
+        return price;
+    }
+
+    // @dev get the secondary price of a token
+    // @param token the token to get the price for
+    // @return the secondary price of a token
+    function getSecondaryPrice(address token) external view returns (Price.Props memory) {
+        if (token == address(0)) { return Price.Props(0, 0); }
+
+        Price.Props memory price = secondaryPrices[token];
+        if (price.isEmpty()) {
+            revert Errors.EmptySecondaryPrice(token);
+        }
+
+        return price;
+    }
+
+    // @dev get the latest price of a token
+    // @param token the token to get the price for
+    // @return the latest price of a token
+    function getLatestPrice(address token) external view returns (Price.Props memory) {
+        if (token == address(0)) { return Price.Props(0, 0); }
+
+        Price.Props memory customPrice = customPrices[token];
+
+        // treat the custom price as a latest price for consistency in cases where
+        // the trigger price or acceptable price is used as the custom price
+        if (!customPrice.isEmpty()) {
+            return customPrice;
+        }
+
+        Price.Props memory secondaryPrice = secondaryPrices[token];
+
+        if (!secondaryPrice.isEmpty()) {
+            return secondaryPrice;
+        }
+
+        Price.Props memory primaryPrice = primaryPrices[token];
+        if (!primaryPrice.isEmpty()) {
+            return primaryPrice;
+        }
+
+        revert Errors.EmptyLatestPrice(token);
+    }
+
+    // @dev get the custom price of a token
+    // @param token the token to get the price for
+    // @return the custom price of a token
+    function getCustomPrice(address token) external view returns (Price.Props memory) {
+        Price.Props memory price = customPrices[token];
+        if (price.isEmpty()) {
+            revert Errors.EmptyCustomPrice(token);
+        }
         return price;
     }
 
@@ -369,8 +446,8 @@ contract Oracle is RoleModule {
             }
             cache.prevMinOracleBlockNumber = reportInfo.minOracleBlockNumber;
 
-            if (Chain.currentBlockNumber() - reportInfo.maxOracleBlockNumber <= cache.minBlockConfirmations) {
-                reportInfo.blockHash = Chain.getBlockHash(reportInfo.maxOracleBlockNumber);
+            if (Chain.currentBlockNumber() - reportInfo.minOracleBlockNumber <= cache.minBlockConfirmations) {
+                reportInfo.blockHash = Chain.getBlockHash(reportInfo.minOracleBlockNumber);
             }
 
             reportInfo.token = params.tokens[i];
@@ -465,16 +542,21 @@ contract Oracle is RoleModule {
                 revert Errors.InvalidMedianMinMaxPrice(medianMinPrice, medianMaxPrice);
             }
 
-            if (!primaryPrices[reportInfo.token].isEmpty()) {
-                revert Errors.DuplicateTokenPrice(reportInfo.token);
+            if (primaryPrices[reportInfo.token].isEmpty()) {
+                emitOraclePriceUpdated(eventEmitter, reportInfo.token, medianMinPrice, medianMaxPrice, true, false);
+
+                primaryPrices[reportInfo.token] = Price.Props(
+                    medianMinPrice,
+                    medianMaxPrice
+                );
+            } else {
+                emitOraclePriceUpdated(eventEmitter, reportInfo.token, medianMinPrice, medianMaxPrice, false, false);
+
+                secondaryPrices[reportInfo.token] = Price.Props(
+                    medianMinPrice,
+                    medianMaxPrice
+                );
             }
-
-            emitOraclePriceUpdated(eventEmitter, reportInfo.token, medianMinPrice, medianMaxPrice, true, false);
-
-            primaryPrices[reportInfo.token] = Price.Props(
-                medianMinPrice,
-                medianMaxPrice
-            );
 
             tokensWithPrices.add(reportInfo.token);
         }
@@ -505,8 +587,6 @@ contract Oracle is RoleModule {
         }
     }
 
-    // there is a small risk of stale pricing due to latency in price updates or if the chain is down
-    // this is meant to be for temporary use until low latency price feeds are supported for all tokens
     function _getPriceFeedPrice(DataStore dataStore, address token) internal view returns (bool, uint256) {
         address priceFeedAddress = dataStore.getAddress(Keys.priceFeedKey(token));
         if (priceFeedAddress == address(0)) {
@@ -528,7 +608,7 @@ contract Oracle is RoleModule {
         }
 
         uint256 heartbeatDuration = dataStore.getUint(Keys.priceFeedHeartbeatDurationKey(token));
-        if (Chain.currentTimestamp() > timestamp && Chain.currentTimestamp() - timestamp > heartbeatDuration) {
+        if (block.timestamp > timestamp && block.timestamp - timestamp > heartbeatDuration) {
             revert Errors.PriceFeedNotUpdated(token, timestamp, heartbeatDuration);
         }
 

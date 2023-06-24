@@ -55,7 +55,7 @@ library IncreasePositionUtils {
         uint256 collateralIncrementAmount
     ) external {
         // get the market prices for the given position
-        MarketUtils.MarketPrices memory prices = MarketUtils.getMarketPrices(
+        MarketUtils.MarketPrices memory prices = MarketUtils.getMarketPricesForPosition(
             params.contracts.oracle,
             params.market
         );
@@ -166,7 +166,7 @@ library IncreasePositionUtils {
             );
 
             if (!willBeSufficient) {
-                revert Errors.InsufficientCollateralUsd(remainingCollateralUsd);
+                revert Errors.InsufficientCollateralForOpenInterestLeverage(remainingCollateralUsd);
             }
         }
 
@@ -302,7 +302,7 @@ library IncreasePositionUtils {
         );
 
         uint256 executionPrice = BaseOrderUtils.getExecutionPrice(
-            params.contracts.oracle.getPrimaryPrice(params.market.indexToken),
+            params.contracts.oracle.getCustomPrice(params.market.indexToken),
             params.order.sizeDeltaUsd(),
             priceImpactUsd,
             params.order.acceptablePrice(),
@@ -311,10 +311,11 @@ library IncreasePositionUtils {
         );
 
         int256 priceImpactAmount = PositionPricingUtils.getPriceImpactAmount(
-            priceImpactUsd,
+            params.order.sizeDeltaUsd(),
+            executionPrice,
             prices.indexTokenPrice,
             params.order.isLong(),
-            true // isIncrease
+            true
         );
 
         return (executionPrice, priceImpactAmount);

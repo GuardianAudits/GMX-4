@@ -340,8 +340,6 @@ library WithdrawalUtils {
         cache.shortTokenPoolAmountDelta = cache.shortTokenOutputAmount - cache.shortTokenFees.feeAmountForPool;
         cache.shortTokenOutputAmount = cache.shortTokenFees.amountAfterFees;
 
-        // it is rare but possible for withdrawals to be blocked because pending borrowing fees
-        // have not yet been deducted from position collateral and credited to the poolAmount value
         MarketUtils.applyDeltaToPoolAmount(
             params.dataStore,
             params.eventEmitter,
@@ -429,9 +427,6 @@ library WithdrawalUtils {
             cache.shortTokenFees
         );
 
-        // if the native token was transferred to the receiver in a swap
-        // it may be possible to invoke external contracts before the validations
-        // are called
         MarketUtils.validateMarketTokenBalance(params.dataStore, market);
     }
 

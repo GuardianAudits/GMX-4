@@ -65,8 +65,7 @@ library IncreaseOrderUtils {
                 params.order,
                 params.key,
                 position,
-                positionKey,
-                params.secondaryOrderType
+                positionKey
             ),
             collateralIncrementAmount
         );

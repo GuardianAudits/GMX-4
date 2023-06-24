@@ -14,17 +14,9 @@ library Printer {
 
     function log(string memory label, int256 value) internal view {
         if (value < 0) {
-            console.log(
-                "%s -%s",
-                label,
-                (-value).toUint256()
-            );
+            console.log(label, "-", (-value).toUint256());
         } else {
-            console.log(
-                "%s +%s",
-                label,
-                value.toUint256()
-            );
+            console.log(label, "+", value.toUint256());
         }
     }
 }

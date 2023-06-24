@@ -21,7 +21,6 @@ library PositionPricingUtils {
     using SafeCast for uint256;
     using SafeCast for int256;
     using Position for Position.Props;
-    using Price for Price.Props;
 
     using EventUtils for EventUtils.AddressItems;
     using EventUtils for EventUtils.UintItems;
@@ -46,6 +45,8 @@ library PositionPricingUtils {
     // too deep errors
     // @param dataStore DataStore
     // @param market the market to check
+    // @param longToken the longToken of the market
+    // @param shortToken the shortToken of the market
     // @param usdDelta the change in position size in USD
     // @param isLong whether the position is long or short
     struct GetPriceImpactUsdParams {
@@ -167,37 +168,50 @@ library PositionPricingUtils {
         uint256 affiliateRewardAmount;
     }
 
+    // @dev get the price impact amount for a position increase / decrease
+    // @param size the change in position size
+    // @param executionPrice the execution price of the index token
+    // @param latestPrice the latest price of the index token
+    // @param isLong whether the position is long or short
+    // @param isIncrease whether it is an increase or decrease position
+    // @return the price impact amount for a position increase / decrease
     function getPriceImpactAmount(
-        int256 priceImpactUsd,
-        Price.Props memory indexTokenPrice,
+        uint256 size,
+        uint256 executionPrice,
+        Price.Props memory latestPrice,
         bool isLong,
         bool isIncrease
     ) internal pure returns (int256) {
-        // the price impact amount should be the difference in sizeInTokens
-        // when increasing a long position, the indexTokenPrice.max should be used to calculate the base amount
-        // e.g. if indexTokenPrice.min is 1998 and indexTokenPrice.max is 2000
-        // base amount: 5000 / 2000 => 2.5
-        // amount after impact: 5000 / 2500 => 2
-        // priceImpactAmount: 0.5
-        // priceImpactAmount = (base amount) - (amount after impact)
-        // priceImpactAmount = sizeDeltaUsd / price - sizeDeltaUsd / executionPrice
-        //
-        // priceImpactAmount = sizeDeltaUsd / price - sizeDeltaUsd / (price * sizeDeltaUsd / (sizeDeltaUsd - priceImpactUsd))
-        // priceImpactAmount = sizeDeltaUsd / price - sizeDeltaUsd * (sizeDeltaUsd - priceImpactUsd) / (price * sizeDeltaUsd)
-        // priceImpactAmount = sizeDeltaUsd / price - (sizeDeltaUsd - priceImpactUsd) / price
-        // priceImpactAmount = (sizeDeltaUsd - sizeDeltaUsd + priceImpactUsd) / price
-        // priceImpactAmount = priceImpactUsd / price
-        // priceImpactAmount = 1000 / 2000 = 0.5
+        uint256 _latestPrice;
+        if (isIncrease) {
+            _latestPrice = isLong ? latestPrice.max : latestPrice.min;
+        } else {
+            _latestPrice = isLong ? latestPrice.min : latestPrice.max;
+        }
 
-        uint256 _indexTokenPrice = indexTokenPrice.pickPriceForPnl(isLong, isIncrease);
+        // increase order:
+        //     - long: price impact is size * (_latestPrice - executionPrice) / _latestPrice
+        //             when executionPrice is smaller than _latestPrice there is a positive price impact
+        //     - short: price impact is size * (executionPrice - _latestPrice) / _latestPrice
+        //              when executionPrice is larger than _latestPrice there is a positive price impact
+        // decrease order:
+        //     - long: price impact is size * (executionPrice - _latestPrice) / _latestPrice
+        //             when executionPrice is larger than _latestPrice there is a positive price impact
+        //     - short: price impact is size * (_latestPrice - executionPrice) / _latestPrice
+        //              when executionPrice is smaller than _latestPrice there is a positive price impact
+        int256 priceDiff = _latestPrice.toInt256() - executionPrice.toInt256();
+        bool shouldFlipPriceDiff = isIncrease ? !isLong : isLong;
+        if (shouldFlipPriceDiff) { priceDiff = -priceDiff; }
 
+        int256 priceImpactUsd = size.toInt256() * priceDiff / executionPrice.toInt256();
+
+        // round positive price impact up, this will be deducted from the position impact pool
         if (priceImpactUsd > 0) {
-            // round positive price impact up, this will be deducted from the position impact pool
-            return Calc.roundUpMagnitudeDivision(priceImpactUsd, _indexTokenPrice);
+            return Calc.roundUpMagnitudeDivision(priceImpactUsd, _latestPrice);
         }
 
         // round negative price impact down, this will be stored in the position impact pool
-        return priceImpactUsd / _indexTokenPrice.toInt256();
+        return priceImpactUsd / _latestPrice.toInt256();
     }
 
     // @dev get the price impact in USD for a position increase / decrease
@@ -306,7 +320,7 @@ library PositionPricingUtils {
         }
 
         // the virtual long and short open interest is adjusted by the usdDelta
-        // to prevent an underflow in getNextOpenInterestParams
+        // to prevent an overflow in getNextOpenInterestParams
         // price impact depends on the change in USD balance, so offsetting both
         // values equally should not change the price impact calculation
         if (params.usdDelta < 0) {
