@@ -75,9 +75,9 @@ library Errors {
     error MaxSwapPathLengthExceeded(uint256 swapPathLengh, uint256 maxSwapPathLength);
     error InsufficientPoolAmount(uint256 poolAmount, uint256 amount);
     error InsufficientReserve(uint256 reservedUsd, uint256 maxReservedUsd);
-    error UnexpectedPoolValueForTokenPriceCalculation(int256 poolValue);
-    error UnexpectedSupplyForTokenPriceCalculation();
     error UnableToGetOppositeToken(address inputToken, address market);
+    error UnexpectedTokenForVirtualInventory(address token, address market);
+    error EmptyMarketTokenSupply();
     error InvalidSwapMarket(address market);
     error UnableToGetCachedTokenPrice(address token, address market);
     error CollateralAlreadyClaimed(uint256 adjustedClaimableAmount, uint256 claimedAmount);
@@ -100,9 +100,9 @@ library Errors {
 
     // Oracle errors
     error EmptySigner(uint256 signerIndex);
-    error InvalidBlockNumber(uint256 blockNumber);
+    error InvalidBlockNumber(uint256 minOracleBlockNumber, uint256 currentBlockNumber);
     error InvalidMinMaxBlockNumber(uint256 minOracleBlockNumber, uint256 maxOracleBlockNumber);
-    error MaxPriceAgeExceeded(uint256 oracleTimestamp);
+    error MaxPriceAgeExceeded(uint256 oracleTimestamp, uint256 currentTimestamp);
     error MinOracleSigners(uint256 oracleSigners, uint256 minOracleSigners);
     error MaxOracleSigners(uint256 oracleSigners, uint256 maxOracleSigners);
     error BlockNumbersNotSorted(uint256 minOracleBlockNumber, uint256 prevMinOracleBlockNumber);
@@ -154,8 +154,9 @@ library Errors {
         uint256 triggerPrice,
         uint256 orderType
     );
-    error PriceImpactLargerThanOrderSize(int256 priceImpactUsdForPriceAdjustment, uint256 sizeDeltaUsd);
-    error OrderNotFulfillableDueToPriceImpact(uint256 price, uint256 acceptablePrice);
+    error PriceImpactLargerThanOrderSize(int256 priceImpactUsd, uint256 sizeDeltaUsd);
+    error NegativeExecutionPrice(int256 executionPrice, uint256 price, uint256 positionSizeInUsd, int256 priceImpactUsd, uint256 sizeDeltaUsd);
+    error OrderNotFulfillableAtAcceptablePrice(uint256 price, uint256 acceptablePrice);
 
     // IncreaseOrderUtils errors
     error UnexpectedPositionState();
@@ -171,7 +172,7 @@ library Errors {
     error UnexpectedMarket();
 
     // DecreasePositionCollateralUtils errors
-    error InsufficientCollateral(uint256 collateralAmount, uint256 pendingCollateralDeduction);
+    error InsufficientFundsToPayForCosts(uint256 remainingCostUsd, string step);
     error InvalidOutputToken(address tokenOut, address expectedTokenOut);
 
     // DecreasePositionUtils errors
@@ -183,6 +184,7 @@ library Errors {
     // IncreasePositionUtils errors
     error InsufficientCollateralAmount(uint256 collateralAmount, int256 collateralDeltaAmount);
     error InsufficientCollateralUsd(int256 remainingCollateralUsd);
+    error NegativeSizeDeltaInTokens(uint256 baseSizeDeltaInTokens, int256 priceImpactAmount);
 
     // PositionStoreUtils errors
     error PositionNotFound(bytes32 key);
@@ -199,7 +201,6 @@ library Errors {
 
     // SwapPricingUtils errors
     error UsdDeltaExceedsPoolValue(int256 usdDelta, uint256 poolUsd);
-    error InvalidPoolAdjustment(address token, uint256 poolUsdForToken, int256 poolUsdAdjustmentForToken);
 
     // RoleModule errors
     error Unauthorized(address msgSender, string role);

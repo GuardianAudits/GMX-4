@@ -80,11 +80,10 @@ library PositionUtils {
     struct DecreasePositionCollateralValues {
         uint256 executionPrice;
         uint256 remainingCollateralAmount;
-        int256 positionPnlUsd;
+        int256 basePnlUsd;
         uint256 sizeDeltaInTokens;
-        int256 priceImpactAmount;
+        int256 priceImpactUsd;
         uint256 priceImpactDiffUsd;
-        uint256 pendingCollateralDeduction;
         DecreasePositionCollateralValuesOutput output;
     }
 
@@ -104,6 +103,7 @@ library PositionUtils {
         int256 estimatedRemainingPnlUsd;
         address pnlToken;
         Price.Props pnlTokenPrice;
+        Price.Props collateralTokenPrice;
         uint256 initialCollateralAmount;
         uint256 nextPositionSizeInUsd;
         uint256 nextPositionBorrowingFactor;
@@ -201,11 +201,9 @@ library PositionUtils {
             );
 
             if (cache.cappedPoolPnl != cache.poolPnl && cache.cappedPoolPnl > 0 && cache.poolPnl > 0) {
-                cache.totalPositionPnl = Precision.applyFraction(cache.totalPositionPnl.toUint256(), cache.cappedPoolPnl, cache.poolPnl.toUint256());
+                cache.totalPositionPnl = Precision.mulDiv(cache.totalPositionPnl.toUint256(), cache.cappedPoolPnl, cache.poolPnl.toUint256());
             }
         }
-
-        cache.sizeDeltaInTokens;
 
         if (position.sizeInUsd() == sizeDeltaUsd) {
             cache.sizeDeltaInTokens = position.sizeInTokens();
@@ -217,7 +215,7 @@ library PositionUtils {
             }
         }
 
-        cache.positionPnlUsd = cache.totalPositionPnl * cache.sizeDeltaInTokens.toInt256() / position.sizeInTokens().toInt256();
+        cache.positionPnlUsd = Precision.mulDiv(cache.totalPositionPnl, cache.sizeDeltaInTokens, position.sizeInTokens());
 
         return (cache.positionPnlUsd, cache.sizeDeltaInTokens);
     }
@@ -375,7 +373,10 @@ library PositionUtils {
 
         PositionPricingUtils.PositionFees memory fees = PositionPricingUtils.getPositionFees(getPositionFeesParams);
 
-        uint256 collateralCostUsd = fees.collateralCostAmount * cache.collateralTokenPrice.min;
+        // the totalCostAmount is in tokens, use collateralTokenPrice.min to calculate the cost in USD
+        // since in PositionPricingUtils.getPositionFees the totalCostAmount in tokens was calculated
+        // using collateralTokenPrice.min
+        uint256 collateralCostUsd = fees.totalCostAmount * cache.collateralTokenPrice.min;
 
         // the position's pnl is counted as collateral for the liquidation check
         // as a position in profit should not be liquidated if the pnl is sufficient
@@ -474,7 +475,7 @@ library PositionUtils {
         MarketUtils.MarketPrices memory prices
     ) internal {
         // update the funding amount per size for the market
-        MarketUtils.updateFundingAmountPerSize(
+        MarketUtils.updateFundingState(
             params.contracts.dataStore,
             params.contracts.eventEmitter,
             params.market,

@@ -73,9 +73,7 @@ library PositionPricingUtils {
     // @param positionFeeAmountForPool the position fee amount for the pool
     // @param positionFeeAmount the fee amount for increasing / decreasing the position
     // @param borrowingFeeAmount the borrowing fee amount
-    // @param totalNetCostAmount the total net cost amount in tokens
-    // @param collateralCostAmount this value is based on the totalNetCostAmount
-    // and any deductions due to output amounts
+    // @param totalCostAmount the total cost amount in tokens
     struct PositionFees {
         PositionReferralFees referral;
         PositionFundingFees funding;
@@ -89,8 +87,8 @@ library PositionPricingUtils {
         uint256 feeAmountForPool;
         uint256 positionFeeAmountForPool;
         uint256 positionFeeAmount;
-        uint256 totalNetCostAmount;
-        uint256 collateralCostAmount;
+        uint256 totalCostAmountExcludingFunding;
+        uint256 totalCostAmount;
     }
 
     // @param affiliate the referral affiliate of the trader
@@ -125,8 +123,9 @@ library PositionPricingUtils {
         uint256 fundingFeeAmount;
         uint256 claimableLongTokenAmount;
         uint256 claimableShortTokenAmount;
-        int256 latestLongTokenFundingAmountPerSize;
-        int256 latestShortTokenFundingAmountPerSize;
+        uint256 latestFundingFeeAmountPerSize;
+        uint256 latestLongTokenClaimableFundingAmountPerSize;
+        uint256 latestShortTokenClaimableFundingAmountPerSize;
     }
 
     struct PositionUiFees {
@@ -165,39 +164,6 @@ library PositionPricingUtils {
         uint256 totalRebateAmount;
         uint256 traderDiscountAmount;
         uint256 affiliateRewardAmount;
-    }
-
-    function getPriceImpactAmount(
-        int256 priceImpactUsd,
-        Price.Props memory indexTokenPrice,
-        bool isLong,
-        bool isIncrease
-    ) internal pure returns (int256) {
-        // the price impact amount should be the difference in sizeInTokens
-        // when increasing a long position, the indexTokenPrice.max should be used to calculate the base amount
-        // e.g. if indexTokenPrice.min is 1998 and indexTokenPrice.max is 2000
-        // base amount: 5000 / 2000 => 2.5
-        // amount after impact: 5000 / 2500 => 2
-        // priceImpactAmount: 0.5
-        // priceImpactAmount = (base amount) - (amount after impact)
-        // priceImpactAmount = sizeDeltaUsd / price - sizeDeltaUsd / executionPrice
-        //
-        // priceImpactAmount = sizeDeltaUsd / price - sizeDeltaUsd / (price * sizeDeltaUsd / (sizeDeltaUsd - priceImpactUsd))
-        // priceImpactAmount = sizeDeltaUsd / price - sizeDeltaUsd * (sizeDeltaUsd - priceImpactUsd) / (price * sizeDeltaUsd)
-        // priceImpactAmount = sizeDeltaUsd / price - (sizeDeltaUsd - priceImpactUsd) / price
-        // priceImpactAmount = (sizeDeltaUsd - sizeDeltaUsd + priceImpactUsd) / price
-        // priceImpactAmount = priceImpactUsd / price
-        // priceImpactAmount = 1000 / 2000 = 0.5
-
-        uint256 _indexTokenPrice = indexTokenPrice.pickPriceForPnl(isLong, isIncrease);
-
-        if (priceImpactUsd > 0) {
-            // round positive price impact up, this will be deducted from the position impact pool
-            return Calc.roundUpMagnitudeDivision(priceImpactUsd, _indexTokenPrice);
-        }
-
-        // round negative price impact down, this will be stored in the position impact pool
-        return priceImpactUsd / _indexTokenPrice.toInt256();
     }
 
     // @dev get the price impact in USD for a position increase / decrease
@@ -382,14 +348,21 @@ library PositionPricingUtils {
         fees.feeAmountForPool = fees.positionFeeAmountForPool + fees.borrowing.borrowingFeeAmount - fees.borrowing.borrowingFeeAmountForFeeReceiver;
         fees.feeReceiverAmount += fees.borrowing.borrowingFeeAmountForFeeReceiver;
 
-        int256 latestLongTokenFundingAmountPerSize = MarketUtils.getFundingAmountPerSize(
+        fees.funding.latestFundingFeeAmountPerSize = MarketUtils.getFundingFeeAmountPerSize(
+            params.dataStore,
+            params.position.market(),
+            params.position.collateralToken(),
+            params.position.isLong()
+        );
+
+        fees.funding.latestLongTokenClaimableFundingAmountPerSize = MarketUtils.getClaimableFundingAmountPerSize(
             params.dataStore,
             params.position.market(),
             params.longToken,
             params.position.isLong()
         );
 
-        int256 latestShortTokenFundingAmountPerSize = MarketUtils.getFundingAmountPerSize(
+        fees.funding.latestShortTokenClaimableFundingAmountPerSize = MarketUtils.getClaimableFundingAmountPerSize(
             params.dataStore,
             params.position.market(),
             params.shortToken,
@@ -397,11 +370,8 @@ library PositionPricingUtils {
         );
 
         fees.funding = getFundingFees(
-            params.position,
-            params.longToken,
-            params.shortToken,
-            latestLongTokenFundingAmountPerSize,
-            latestShortTokenFundingAmountPerSize
+            fees.funding,
+            params.position
         );
 
         fees.ui = getUiFees(
@@ -411,14 +381,15 @@ library PositionPricingUtils {
             params.uiFeeReceiver
         );
 
-        fees.totalNetCostAmount =
+        fees.totalCostAmountExcludingFunding =
             fees.positionFeeAmount
-            + fees.funding.fundingFeeAmount
             + fees.borrowing.borrowingFeeAmount
             + fees.ui.uiFeeAmount
             - fees.referral.traderDiscountAmount;
 
-        fees.collateralCostAmount = fees.totalNetCostAmount;
+        fees.totalCostAmount =
+            fees.totalCostAmountExcludingFunding
+            + fees.funding.fundingFeeAmount;
 
         return fees;
     }
@@ -439,45 +410,29 @@ library PositionPricingUtils {
     }
 
     function getFundingFees(
-        Position.Props memory position,
-        address longToken,
-        address shortToken,
-        int256 latestLongTokenFundingAmountPerSize,
-        int256 latestShortTokenFundingAmountPerSize
+        PositionFundingFees memory fundingFees,
+        Position.Props memory position
     ) internal pure returns (PositionFundingFees memory) {
-        PositionFundingFees memory fundingFees;
-
-        fundingFees.latestLongTokenFundingAmountPerSize = latestLongTokenFundingAmountPerSize;
-        fundingFees.latestShortTokenFundingAmountPerSize = latestShortTokenFundingAmountPerSize;
-
-        int256 longTokenFundingFeeAmount = MarketUtils.getFundingFeeAmount(
-            fundingFees.latestLongTokenFundingAmountPerSize,
-            position.longTokenFundingAmountPerSize(),
-            position.sizeInUsd()
+        fundingFees.fundingFeeAmount = MarketUtils.getFundingAmount(
+            fundingFees.latestFundingFeeAmountPerSize,
+            position.fundingFeeAmountPerSize(),
+            position.sizeInUsd(),
+            true // roundUpMagnitude
         );
 
-        int256 shortTokenFundingFeeAmount = MarketUtils.getFundingFeeAmount(
-            fundingFees.latestShortTokenFundingAmountPerSize,
-            position.shortTokenFundingAmountPerSize(),
-            position.sizeInUsd()
+        fundingFees.claimableLongTokenAmount = MarketUtils.getFundingAmount(
+            fundingFees.latestLongTokenClaimableFundingAmountPerSize,
+            position.longTokenClaimableFundingAmountPerSize(),
+            position.sizeInUsd(),
+            false // roundUpMagnitude
         );
 
-        // if the position has negative funding fees, distribute it to allow it to be claimable
-        if (longTokenFundingFeeAmount < 0) {
-            fundingFees.claimableLongTokenAmount = (-longTokenFundingFeeAmount).toUint256();
-        }
-
-        if (shortTokenFundingFeeAmount < 0) {
-            fundingFees.claimableShortTokenAmount = (-shortTokenFundingFeeAmount).toUint256();
-        }
-
-        if (position.collateralToken() == longToken && longTokenFundingFeeAmount > 0) {
-            fundingFees.fundingFeeAmount = longTokenFundingFeeAmount.toUint256();
-        }
-
-        if (position.collateralToken() == shortToken && shortTokenFundingFeeAmount > 0) {
-            fundingFees.fundingFeeAmount = shortTokenFundingFeeAmount.toUint256();
-        }
+        fundingFees.claimableShortTokenAmount = MarketUtils.getFundingAmount(
+            fundingFees.latestShortTokenClaimableFundingAmountPerSize,
+            position.shortTokenClaimableFundingAmountPerSize(),
+            position.sizeInUsd(),
+            false // roundUpMagnitude
+        );
 
         return fundingFees;
     }

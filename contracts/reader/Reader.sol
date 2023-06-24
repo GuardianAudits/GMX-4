@@ -19,7 +19,6 @@ import "../market/MarketUtils.sol";
 import "../market/Market.sol";
 
 import "./ReaderUtils.sol";
-import { PositionInfo } from "./ReaderUtils.sol";
 
 // @title Reader
 // @dev Library for read functions
@@ -37,7 +36,10 @@ contract Reader {
         Market.Props market;
         uint256 borrowingFactorPerSecondForLongs;
         uint256 borrowingFactorPerSecondForShorts;
-        MarketUtils.GetNextFundingAmountPerSizeResult funding;
+
+        ReaderUtils.BaseFundingValues baseFunding;
+        MarketUtils.GetNextFundingAmountPerSizeResult nextFunding;
+
         VirtualInventory virtualInventory;
         bool isDisabled;
     }
@@ -66,6 +68,26 @@ contract Reader {
         return OrderStoreUtils.get(dataStore, key);
     }
 
+    function getPositionPnlUsd(
+        DataStore dataStore,
+        Market.Props memory market,
+        MarketUtils.MarketPrices memory prices,
+        bytes32 positionKey,
+        uint256 executionPrice,
+        uint256 sizeDeltaUsd
+    ) external view returns (int256, uint256) {
+        Position.Props memory position = PositionStoreUtils.get(dataStore, positionKey);
+
+        return PositionUtils.getPositionPnlUsd(
+            dataStore,
+            market,
+            prices,
+            position,
+            executionPrice,
+            sizeDeltaUsd
+        );
+    }
+
     function getAccountPositions(
         DataStore dataStore,
         address account,
@@ -88,8 +110,8 @@ contract Reader {
         bytes32[] memory positionKeys,
         MarketUtils.MarketPrices[] memory prices,
         address uiFeeReceiver
-    ) external view returns (PositionInfo[] memory) {
-        PositionInfo[] memory positionInfoList = new PositionInfo[](positionKeys.length);
+    ) external view returns (ReaderUtils.PositionInfo[] memory) {
+        ReaderUtils.PositionInfo[] memory positionInfoList = new ReaderUtils.PositionInfo[](positionKeys.length);
         for (uint256 i; i < positionKeys.length; i++) {
             bytes32 positionKey = positionKeys[i];
             positionInfoList[i] = getPositionInfo(
@@ -114,7 +136,7 @@ contract Reader {
         uint256 sizeDeltaUsd,
         address uiFeeReceiver,
         bool usePositionSizeAsSizeDeltaUsd
-    ) public view returns (PositionInfo memory) {
+    ) public view returns (ReaderUtils.PositionInfo memory) {
         return ReaderUtils.getPositionInfo(
             dataStore,
             referralStorage,
@@ -196,7 +218,12 @@ contract Reader {
             false
         );
 
-        MarketUtils.GetNextFundingAmountPerSizeResult memory funding = ReaderUtils.getNextFundingAmountPerSize(
+        ReaderUtils.BaseFundingValues memory baseFunding = ReaderUtils.getBaseFundingValues(
+            dataStore,
+            market
+        );
+
+        MarketUtils.GetNextFundingAmountPerSizeResult memory nextFunding = ReaderUtils.getNextFundingAmountPerSize(
             dataStore,
             market,
             prices
@@ -210,7 +237,8 @@ contract Reader {
             market,
             borrowingFactorPerSecondForLongs,
             borrowingFactorPerSecondForShorts,
-            funding,
+            baseFunding,
+            nextFunding,
             virtualInventory,
             isMarketDisabled
         );
@@ -292,7 +320,7 @@ contract Reader {
         uint256 amountIn,
         address uiFeeReceiver
     ) external view returns (uint256, int256, SwapPricingUtils.SwapFees memory fees) {
-        return ReaderUtils.getSwapAmountOut(
+        return ReaderPricingUtils.getSwapAmountOut(
             dataStore,
             market,
             prices,
@@ -306,8 +334,7 @@ contract Reader {
         DataStore dataStore,
         Market.Props memory market
     ) internal view returns (VirtualInventory memory) {
-        (, uint256 virtualPoolAmountForLongToken) = MarketUtils.getVirtualInventoryForSwaps(dataStore, market.marketToken, market.longToken);
-        (, uint256 virtualPoolAmountForShortToken) = MarketUtils.getVirtualInventoryForSwaps(dataStore, market.marketToken, market.shortToken);
+        (, uint256 virtualPoolAmountForLongToken, uint256 virtualPoolAmountForShortToken) = MarketUtils.getVirtualInventoryForSwaps(dataStore, market.marketToken);
         (, int256 virtualInventoryForPositions) = MarketUtils.getVirtualInventoryForPositions(dataStore, market.indexToken);
 
         return VirtualInventory(
@@ -321,14 +348,18 @@ contract Reader {
         DataStore dataStore,
         address marketKey,
         Price.Props memory indexTokenPrice,
+        uint256 positionSizeInUsd,
+        uint256 positionSizeInTokens,
         int256 sizeDeltaUsd,
         bool isLong
-    ) external view returns (ReaderUtils.ExecutionPriceResult memory) {
+    ) external view returns (ReaderPricingUtils.ExecutionPriceResult memory) {
         Market.Props memory market = MarketStoreUtils.get(dataStore, marketKey);
-        return ReaderUtils.getExecutionPrice(
+        return ReaderPricingUtils.getExecutionPrice(
             dataStore,
             market,
             indexTokenPrice,
+            positionSizeInUsd,
+            positionSizeInTokens,
             sizeDeltaUsd,
             isLong
         );
@@ -344,7 +375,7 @@ contract Reader {
         Price.Props memory tokenOutPrice
     ) external view returns (int256, int256) {
         Market.Props memory market = MarketStoreUtils.get(dataStore, marketKey);
-        return ReaderUtils.getSwapPriceImpact(
+        return ReaderPricingUtils.getSwapPriceImpact(
             dataStore,
             market,
             tokenIn,

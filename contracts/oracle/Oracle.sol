@@ -242,7 +242,7 @@ contract Oracle is RoleModule {
     // @param token the token to set the price for
     // @param price the price value to set to
     function setPrimaryPrice(address token, Price.Props memory price) external onlyController {
-        primaryPrices[token] = price;
+        _setPrimaryPrice(token, price);
     }
 
     // @dev clear all prices
@@ -250,8 +250,7 @@ contract Oracle is RoleModule {
         uint256 length = tokensWithPrices.length();
         for (uint256 i; i < length; i++) {
             address token = tokensWithPrices.at(0);
-            delete primaryPrices[token];
-            tokensWithPrices.remove(token);
+            _removePrimaryPrice(token);
         }
     }
 
@@ -356,11 +355,11 @@ contract Oracle is RoleModule {
             reportInfo.oracleTimestamp = OracleUtils.getUncompactedOracleTimestamp(params.compactedOracleTimestamps, i);
 
             if (reportInfo.minOracleBlockNumber > Chain.currentBlockNumber()) {
-                revert Errors.InvalidBlockNumber(reportInfo.minOracleBlockNumber);
+                revert Errors.InvalidBlockNumber(reportInfo.minOracleBlockNumber, Chain.currentBlockNumber());
             }
 
             if (reportInfo.oracleTimestamp + cache.maxPriceAge < Chain.currentTimestamp()) {
-                revert Errors.MaxPriceAgeExceeded(reportInfo.oracleTimestamp);
+                revert Errors.MaxPriceAgeExceeded(reportInfo.oracleTimestamp, Chain.currentTimestamp());
             }
 
             // block numbers must be in ascending order
@@ -374,6 +373,11 @@ contract Oracle is RoleModule {
             }
 
             reportInfo.token = params.tokens[i];
+
+            if (!primaryPrices[reportInfo.token].isEmpty()) {
+                revert Errors.DuplicateTokenPrice(reportInfo.token);
+            }
+
             reportInfo.precision = 10 ** OracleUtils.getUncompactedDecimal(params.compactedDecimals, i);
             reportInfo.tokenOracleType = dataStore.getBytes32(Keys.oracleTypeKey(reportInfo.token));
 
@@ -465,18 +469,12 @@ contract Oracle is RoleModule {
                 revert Errors.InvalidMedianMinMaxPrice(medianMinPrice, medianMaxPrice);
             }
 
-            if (!primaryPrices[reportInfo.token].isEmpty()) {
-                revert Errors.DuplicateTokenPrice(reportInfo.token);
-            }
+            emitOraclePriceUpdated(eventEmitter, reportInfo.token, medianMinPrice, medianMaxPrice, false);
 
-            emitOraclePriceUpdated(eventEmitter, reportInfo.token, medianMinPrice, medianMaxPrice, true, false);
-
-            primaryPrices[reportInfo.token] = Price.Props(
+            _setPrimaryPrice(reportInfo.token, Price.Props(
                 medianMinPrice,
                 medianMaxPrice
-            );
-
-            tokensWithPrices.add(reportInfo.token);
+            ));
         }
     }
 
@@ -503,6 +501,16 @@ contract Oracle is RoleModule {
                 maxRefPriceDeviationFactor
             );
         }
+    }
+
+    function _setPrimaryPrice(address token, Price.Props memory price) internal {
+        primaryPrices[token] = price;
+        tokensWithPrices.add(token);
+    }
+
+    function _removePrimaryPrice(address token) internal {
+        delete primaryPrices[token];
+        tokensWithPrices.remove(token);
     }
 
     // there is a small risk of stale pricing due to latency in price updates or if the chain is down
@@ -535,7 +543,7 @@ contract Oracle is RoleModule {
         uint256 price = SafeCast.toUint256(_price);
         uint256 precision = getPriceFeedMultiplier(dataStore, token);
 
-        uint256 adjustedPrice = price * precision / Precision.FLOAT_PRECISION;
+        uint256 adjustedPrice = Precision.mulDiv(price, precision, Precision.FLOAT_PRECISION);
 
         return (true, adjustedPrice);
     }
@@ -574,11 +582,9 @@ contract Oracle is RoleModule {
                 );
             }
 
-            primaryPrices[token] = priceProps;
+            _setPrimaryPrice(token, priceProps);
 
-            tokensWithPrices.add(token);
-
-            emitOraclePriceUpdated(eventEmitter, token, priceProps.min, priceProps.max, true, true);
+            emitOraclePriceUpdated(eventEmitter, token, priceProps.min, priceProps.max, true);
         }
     }
 
@@ -587,7 +593,6 @@ contract Oracle is RoleModule {
         address token,
         uint256 minPrice,
         uint256 maxPrice,
-        bool isPrimary,
         bool isPriceFeed
     ) internal {
         EventUtils.EventLogData memory eventData;
@@ -599,15 +604,13 @@ contract Oracle is RoleModule {
         eventData.uintItems.setItem(0, "minPrice", minPrice);
         eventData.uintItems.setItem(1, "maxPrice", maxPrice);
 
-        eventData.boolItems.initItems(2);
-        eventData.boolItems.setItem(0, "isPrimary", isPrimary);
-        eventData.boolItems.setItem(1, "isPriceFeed", isPriceFeed);
+        eventData.boolItems.initItems(1);
+        eventData.boolItems.setItem(0, "isPriceFeed", isPriceFeed);
 
         eventEmitter.emitEventLog1(
             "OraclePriceUpdate",
             Cast.toBytes32(token),
             eventData
         );
-
     }
 }
